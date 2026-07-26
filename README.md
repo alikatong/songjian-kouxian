@@ -106,7 +106,7 @@ flowchart LR
 ## 项目目录
 
 ```text
-songjian-cultivation/
+songjian-kouxian/
 ├── frontend/                  # React Web 主客户端
 ├── backend/                   # Express API、迁移、测试和服务端美术资源
 ├── admin-tool/                # Windows 运营管理台
@@ -131,8 +131,8 @@ songjian-cultivation/
 ### 1. 获取代码并安装依赖
 
 ```bash
-git clone https://github.com/alikatong/songjian-cultivation.git
-cd songjian-cultivation
+git clone https://github.com/alikatong/songjian-kouxian.git
+cd songjian-kouxian
 
 cd backend
 cp .env.example .env
