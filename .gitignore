@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Environment variables (never commit)
+.env
+.env.local
+.env.*.local
+
+# Build output
+frontend/dist/
+backend/dist/
+**/bin/
+**/obj/
+artifacts/
+.art-jobs/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+miniprogram/project.private.config.json
+
+# Runtime
+pids/
+*.pid

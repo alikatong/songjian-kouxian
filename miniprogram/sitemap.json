@@ -1,0 +1,5 @@
+{
+  "desc": "松间叩仙小程序页面索引",
+  "rules": [{ "action": "disallow", "page": "*" }]
+}
+

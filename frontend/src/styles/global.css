@@ -1,0 +1,163 @@
+/* 全局样式重置与基础样式 */
+
+/* CSS Reset */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* 根元素 */
+:root {
+  --bg-primary: #0d1117;
+  --bg-card: #161b22;
+  --bg-input: #21262d;
+  --color-gold: #d4af37;
+  --color-gold-light: #f0d060;
+  --color-gold-dim: #8a7020;
+  --color-text: #e6e1dc;
+  --color-text-dim: #8b949e;
+  --color-border: #30363d;
+  --color-danger: #f85149;
+  --color-success: #56d364;
+  --border-radius: 8px;
+  --transition: 0.2s ease;
+}
+
+/* 全局字体 */
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: "仿宋", "FangSong", "楷体", "KaiTi", "STKaiti", "华文楷体",
+    "Noto Serif SC", Georgia, serif;
+  background-color: var(--bg-primary);
+  color: var(--color-text);
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* 链接 */
+a {
+  color: var(--color-gold);
+  text-decoration: none;
+  transition: color var(--transition);
+}
+
+a:hover {
+  color: var(--color-gold-light);
+}
+
+/* 按钮基础样式 */
+button {
+  cursor: pointer;
+  font-family: inherit;
+  border: none;
+  outline: none;
+  transition: all var(--transition);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* 输入框基础样式 */
+input {
+  font-family: inherit;
+  outline: none;
+  border: none;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold-dim);
+}
+
+/* Firefox 滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) var(--bg-primary);
+}
+
+/* 动画：发光效果 */
+@keyframes glow {
+  0% {
+    box-shadow: 0 0 5px var(--color-gold-dim), 0 0 10px var(--color-gold-dim);
+  }
+  50% {
+    box-shadow: 0 0 15px var(--color-gold), 0 0 30px var(--color-gold), 0 0 45px var(--color-gold-dim);
+  }
+  100% {
+    box-shadow: 0 0 5px var(--color-gold-dim), 0 0 10px var(--color-gold-dim);
+  }
+}
+
+/* 动画：文字发光 */
+@keyframes textGlow {
+  0% {
+    text-shadow: 0 0 5px var(--color-gold-dim);
+  }
+  50% {
+    text-shadow: 0 0 15px var(--color-gold), 0 0 25px var(--color-gold-dim);
+  }
+  100% {
+    text-shadow: 0 0 5px var(--color-gold-dim);
+  }
+}
+
+/* 动画：淡入 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 动画：旋转（用于加载） */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 动画：进度条流光 */
+@keyframes shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+/* 全局页面容器 */
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}

@@ -1,0 +1,160 @@
+<Window x:Class="SongJian.AdminTool.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="松间叩仙管理台" Width="1440" Height="900" MinWidth="1180" MinHeight="720"
+        WindowStartupLocation="CenterScreen">
+  <Grid Background="{StaticResource WindowBrush}">
+    <Grid x:Name="LoginView">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="460"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Border Grid.Column="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="42" VerticalAlignment="Center">
+        <StackPanel>
+          <TextBlock Text="松间叩仙" FontSize="30" FontWeight="SemiBold" Foreground="{StaticResource GoldBrush}"/>
+          <TextBlock Text="运营管理台" FontSize="18" Margin="0,4,0,34" Foreground="{StaticResource MutedBrush}"/>
+          <Label Content="管理 API 地址"/><TextBox Text="{Binding ApiUrl,UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14"/>
+          <Label Content="管理员账号"/><TextBox Text="{Binding LoginUsername,UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,14"/>
+          <Label Content="密码"/><PasswordBox x:Name="LoginPassword" Margin="0,0,0,24"/>
+          <Button Content="连接并登录" Style="{StaticResource PrimaryButton}" Height="42" Click="Login_Click"/>
+          <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,18,0,0"/>
+          <TextBlock Text="密码与登录令牌不会写入本地文件。" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,28,0,0"/>
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <Grid x:Name="ShellView" Visibility="Collapsed">
+      <Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/><RowDefinition Height="34"/></Grid.RowDefinitions>
+      <Border Grid.Row="0" Background="#131C17" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="22,0">
+        <DockPanel LastChildFill="True">
+          <TextBlock Text="松间叩仙管理台" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource GoldBrush}" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+          <Button Content="退出" Command="{Binding LogoutCommand}" DockPanel.Dock="Right" VerticalAlignment="Center"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+            <Border Background="#263228" Padding="9,5" Margin="0,0,12,0"><TextBlock Text="{Binding EnvironmentLabel}" Foreground="{StaticResource GreenBrush}"/></Border>
+            <TextBlock Text="{Binding Admin.DisplayName}" FontWeight="SemiBold"/><TextBlock Text="{Binding Admin.Role,StringFormat=  · {0}}" Foreground="{StaticResource MutedBrush}"/>
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
+      <TabControl Grid.Row="1" TabStripPlacement="Left">
+        <TabItem Header="总览">
+          <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="28">
+            <DockPanel LastChildFill="False"><TextBlock Text="运营总览" FontSize="28"/><Button Content="刷新" Command="{Binding RefreshDashboardCommand}" DockPanel.Dock="Right"/></DockPanel>
+            <UniformGrid Columns="5" Margin="0,22,0,22">
+              <Border Style="{StaticResource MetricCard}"><StackPanel><TextBlock Text="玩家总数" Foreground="{StaticResource MutedBrush}"/><TextBlock Text="{Binding Dashboard.Players}" Style="{StaticResource MetricValue}"/></StackPanel></Border>
+              <Border Style="{StaticResource MetricCard}"><StackPanel><TextBlock Text="今日活跃" Foreground="{StaticResource MutedBrush}"/><TextBlock Text="{Binding Dashboard.ActiveToday}" Style="{StaticResource MetricValue}"/></StackPanel></Border>
+              <Border Style="{StaticResource MetricCard}"><StackPanel><TextBlock Text="七日活跃" Foreground="{StaticResource MutedBrush}"/><TextBlock Text="{Binding Dashboard.ActiveSevenDays}" Style="{StaticResource MetricValue}"/></StackPanel></Border>
+              <Border Style="{StaticResource MetricCard}"><StackPanel><TextBlock Text="封禁账号" Foreground="{StaticResource MutedBrush}"/><TextBlock Text="{Binding Dashboard.Banned}" Style="{StaticResource MetricValue}" Foreground="{StaticResource RedBrush}"/></StackPanel></Border>
+              <Border Style="{StaticResource MetricCard}"><StackPanel><TextBlock Text="全服灵石" Foreground="{StaticResource MutedBrush}"/><TextBlock Text="{Binding Dashboard.SpiritStones}" Style="{StaticResource MetricValue}"/></StackPanel></Border>
+              <Border Style="{StaticResource MetricCard}"><StackPanel><TextBlock Text="今日新增" Foreground="{StaticResource MutedBrush}"/><TextBlock Text="{Binding Dashboard.NewToday}" Style="{StaticResource MetricValue}"/></StackPanel></Border>
+              <Border Style="{StaticResource MetricCard}"><StackPanel><TextBlock Text="活动拍品" Foreground="{StaticResource MutedBrush}"/><TextBlock Text="{Binding Dashboard.ActiveAuctions}" Style="{StaticResource MetricValue}"/></StackPanel></Border>
+              <Border Style="{StaticResource MetricCard}"><StackPanel><TextBlock Text="待领邮件" Foreground="{StaticResource MutedBrush}"/><TextBlock Text="{Binding Dashboard.UnclaimedMail}" Style="{StaticResource MetricValue}"/></StackPanel></Border>
+              <Border Style="{StaticResource MetricCard}"><StackPanel><TextBlock Text="24h 战斗" Foreground="{StaticResource MutedBrush}"/><TextBlock Text="{Binding Dashboard.Battles24h}" Style="{StaticResource MetricValue}"/></StackPanel></Border>
+            </UniformGrid>
+            <TextBlock Text="最近管理员操作" FontSize="18" Margin="0,8"/>
+            <DataGrid ItemsSource="{Binding RecentAudits}" Height="330"><DataGrid.Columns>
+              <DataGridTextColumn Header="时间" Binding="{Binding CreatedAt,StringFormat=yyyy-MM-dd HH:mm:ss}" Width="170"/><DataGridTextColumn Header="管理员" Binding="{Binding AdminUsername}" Width="130"/><DataGridTextColumn Header="动作" Binding="{Binding Action}" Width="220"/><DataGridTextColumn Header="目标" Binding="{Binding TargetId}" Width="120"/><DataGridCheckBoxColumn Header="成功" Binding="{Binding Success}" Width="70"/>
+            </DataGrid.Columns></DataGrid>
+          </StackPanel></ScrollViewer>
+        </TabItem>
+
+        <TabItem Header="玩家">
+          <Grid Margin="20"><Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="3*"/></Grid.ColumnDefinitions>
+            <Grid Grid.Column="0" Margin="0,0,12,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+              <DockPanel Margin="0,0,0,10"><Button Content="搜索" Command="{Binding SearchPlayersCommand}" DockPanel.Dock="Right"/><TextBox Text="{Binding PlayerSearch,UpdateSourceTrigger=PropertyChanged}" ToolTip="玩家 ID、用户名或角色名"/></DockPanel>
+              <DataGrid Grid.Row="1" ItemsSource="{Binding Players}" SelectedItem="{Binding SelectedPlayer}" MouseDoubleClick="Players_DoubleClick"><DataGrid.Columns>
+                <DataGridTextColumn Header="账号" Binding="{Binding Username}" Width="120"/><DataGridTextColumn Header="角色" Binding="{Binding CharacterName}" Width="120"/><DataGridTextColumn Header="境界" Binding="{Binding RealmDisplay}" Width="130"/><DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="80"/><DataGridTextColumn Header="灵石" Binding="{Binding SpiritStones}" Width="100"/>
+              </DataGrid.Columns></DataGrid>
+            </Grid>
+            <Grid Grid.Column="1"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <DockPanel Margin="0,0,0,10"><Button Content="加载详情" Command="{Binding LoadPlayerCommand}" DockPanel.Dock="Right"/><TextBlock Text="玩家 360 工作台" FontSize="22"/></DockPanel>
+              <TabControl Grid.Row="1">
+                <TabItem Header="概览"><TextBox Text="{Binding PlayerSummary,Mode=OneWay}" IsReadOnly="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap"/></TabItem>
+                <TabItem Header="健康"><ItemsControl ItemsSource="{Binding PlayerDetail.Health}"><ItemsControl.ItemTemplate><DataTemplate><Border Background="#2A211E" BorderBrush="{StaticResource RedBrush}" BorderThickness="1" Padding="12" Margin="0,4"><StackPanel><TextBlock Text="{Binding Code}" Foreground="{StaticResource RedBrush}" FontWeight="SemiBold"/><TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,4,0,0"/></StackPanel></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></TabItem>
+                <TabItem Header="行囊"><ListBox ItemsSource="{Binding PlayerDetail.Inventory}" DisplayMemberPath="Summary"/></TabItem>
+                <TabItem Header="装备"><ListBox ItemsSource="{Binding PlayerDetail.Equipment}" DisplayMemberPath="Summary"/></TabItem>
+                <TabItem Header="功法"><ListBox ItemsSource="{Binding PlayerDetail.Techniques}" DisplayMemberPath="Summary"/></TabItem>
+                <TabItem Header="丹谱"><ListBox ItemsSource="{Binding PlayerDetail.Recipes}" DisplayMemberPath="Summary"/></TabItem>
+                <TabItem Header="炼器谱"><ListBox ItemsSource="{Binding PlayerDetail.EquipmentRecipes}" DisplayMemberPath="Summary"/></TabItem>
+                <TabItem Header="邮件"><ListBox ItemsSource="{Binding PlayerDetail.Mail}" DisplayMemberPath="Summary"/></TabItem>
+                <TabItem Header="拍卖"><ListBox ItemsSource="{Binding PlayerDetail.Auctions}" DisplayMemberPath="Summary"/></TabItem>
+                <TabItem Header="战斗"><ListBox ItemsSource="{Binding PlayerDetail.Battles}" DisplayMemberPath="Summary"/></TabItem>
+                <TabItem Header="游历"><ListBox ItemsSource="{Binding PlayerDetail.Explorations}" DisplayMemberPath="Summary"/></TabItem>
+                <TabItem Header="资源流水"><ListBox ItemsSource="{Binding PlayerDetail.Ledger}" DisplayMemberPath="Summary"/></TabItem>
+                <TabItem Header="资产管理"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="10">
+                  <TextBlock Text="库存纠错" FontSize="18"/><TextBlock Text="负数代表扣除；锁定、装备中或数量不足时服务端拒绝。" Foreground="{StaticResource MutedBrush}" Margin="0,4,0,10"/>
+                  <Label Content="物品"/><ComboBox ItemsSource="{Binding CatalogItems}" SelectedItem="{Binding InventoryItem}" DisplayMemberPath="Display" IsTextSearchEnabled="True"/><Button Content="调整物品" Command="{Binding AdjustItemCommand}" HorizontalAlignment="Left"/>
+                  <Label Content="装备"/><ComboBox ItemsSource="{Binding CatalogEquipment}" SelectedItem="{Binding InventoryEquipment}" DisplayMemberPath="Display" IsTextSearchEnabled="True"/><Button Content="调整装备" Command="{Binding AdjustEquipmentCommand}" HorizontalAlignment="Left"/>
+                  <Label Content="增减数量"/><TextBox Text="{Binding InventoryDelta}" Width="160" HorizontalAlignment="Left"/>
+                  <Separator Margin="0,16"/><TextBlock Text="进度解锁" FontSize="18"/><ComboBox ItemsSource="{Binding UnlockOperations}" SelectedItem="{Binding UnlockOperation}" Width="180" HorizontalAlignment="Left" Margin="0,8"/>
+                  <Label Content="功法"/><ComboBox ItemsSource="{Binding CatalogTechniques}" SelectedItem="{Binding UnlockTechnique}" DisplayMemberPath="Display" IsTextSearchEnabled="True"/><Button Content="执行功法操作" Command="{Binding UnlockTechniqueCommand}" HorizontalAlignment="Left"/>
+                  <Label Content="丹谱"/><ComboBox ItemsSource="{Binding CatalogItems}" SelectedItem="{Binding UnlockRecipe}" DisplayMemberPath="Display" IsTextSearchEnabled="True"/><Button Content="执行丹谱操作" Command="{Binding UnlockRecipeCommand}" HorizontalAlignment="Left"/>
+                  <Label Content="炼器谱"/><ComboBox ItemsSource="{Binding CatalogEquipment}" SelectedItem="{Binding UnlockEquipmentRecipe}" DisplayMemberPath="Display" IsTextSearchEnabled="True"/><Button Content="执行炼器谱操作" Command="{Binding UnlockEquipmentRecipeCommand}" HorizontalAlignment="Left"/>
+                </StackPanel></ScrollViewer></TabItem>
+              </TabControl>
+              <Border Grid.Row="2" Background="{StaticResource PanelAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="12" Margin="0,12,0,0">
+                <StackPanel><TextBlock Text="处置操作" FontWeight="SemiBold"/>
+                  <Grid Margin="0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions><TextBox Text="{Binding ActionReason,UpdateSourceTrigger=PropertyChanged}" ToolTip="必填操作原因"/><TextBox Grid.Column="1" Text="{Binding ActionValue}" Margin="8,0,0,0" ToolTip="资源调整值"/></Grid>
+                  <WrapPanel><Button Content="封禁" Command="{Binding BanCommand}" Style="{StaticResource DangerButton}"/><Button Content="解封" Command="{Binding UnbanCommand}"/><Button Content="踢下线" Command="{Binding KickCommand}"/><Button Content="调整灵石" Command="{Binding AdjustStonesCommand}"/><Button Content="设置精力" Command="{Binding SetStaminaCommand}"/><Button Content="修复状态" Command="{Binding RestoreCommand}" Style="{StaticResource DangerButton}"/></WrapPanel>
+                </StackPanel>
+              </Border>
+            </Grid>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="邮件">
+          <Grid Margin="28"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <StackPanel Margin="0,0,24,0"><TextBlock Text="单人附件邮件" FontSize="24"/><TextBlock Text="附件通过玩家信箱领取。" Foreground="{StaticResource MutedBrush}" Margin="0,6,0,12"/>
+              <Label Content="收件玩家"/><ComboBox ItemsSource="{Binding Players}" SelectedItem="{Binding SelectedPlayer,Mode=TwoWay}" DisplayMemberPath="Username" IsTextSearchEnabled="True"/>
+              <Label Content="标题"/><TextBox Text="{Binding MailTitle,UpdateSourceTrigger=PropertyChanged}"/><Label Content="正文"/><TextBox Text="{Binding MailBody,UpdateSourceTrigger=PropertyChanged}" Height="120" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
+              <Label Content="物品附件（与装备二选一）"/><ComboBox ItemsSource="{Binding CatalogItems}" SelectedItem="{Binding MailItem}" DisplayMemberPath="Display" IsTextSearchEnabled="True"/>
+              <Label Content="装备附件"/><ComboBox ItemsSource="{Binding CatalogEquipment}" SelectedItem="{Binding MailEquipment}" DisplayMemberPath="Display" IsTextSearchEnabled="True"/>
+              <Grid Margin="0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions><StackPanel><Label Content="数量"/><TextBox Text="{Binding MailQuantity}"/></StackPanel><StackPanel Grid.Column="1" Margin="10,0,0,0"><Label Content="灵石"/><TextBox Text="{Binding MailSpiritStones}"/></StackPanel></Grid>
+              <Label Content="操作原因（审计必填，至少 4 个字符）"/><TextBox Text="{Binding MailReason,UpdateSourceTrigger=PropertyChanged}"/>
+              <Button Content="确认并发送邮件" Command="{Binding SendMailCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,12,0,0"/>
+            </StackPanel>
+            <Border Grid.Column="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Padding="24" VerticalAlignment="Top">
+              <StackPanel><TextBlock Text="玩家信箱预览" Foreground="{StaticResource GoldBrush}"/><TextBlock Text="{Binding MailTitle}" FontSize="24" Margin="0,18,0,12"/><TextBlock Text="{Binding MailBody}" TextWrapping="Wrap"/><Separator Margin="0,20"/><TextBlock Text="附件将在领取时进入玩家资产，发送请求具备幂等保护。" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/></StackPanel>
+            </Border>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="聊天">
+          <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <DockPanel><Button Content="刷新" Command="{Binding RefreshChatsCommand}" DockPanel.Dock="Right"/><TextBlock Text="聊天治理" FontSize="24"/></DockPanel>
+            <DataGrid Grid.Row="1" ItemsSource="{Binding Chats}" SelectedItem="{Binding SelectedChat}" Margin="0,12"><DataGrid.Columns><DataGridTextColumn Header="时间" Binding="{Binding CreatedAt,StringFormat=MM-dd HH:mm:ss}" Width="130"/><DataGridTextColumn Header="发送者" Binding="{Binding Sender}" Width="120"/><DataGridTextColumn Header="频道" Binding="{Binding Channel}" Width="80"/><DataGridTextColumn Header="内容" Binding="{Binding Body}" Width="*"/><DataGridTextColumn Header="状态" Binding="{Binding ModerationStatus}" Width="90"/></DataGrid.Columns></DataGrid>
+            <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><Label Content="操作原因（审计必填，至少 4 个字符）"/><TextBox Text="{Binding ChatReason,UpdateSourceTrigger=PropertyChanged}"/></StackPanel><WrapPanel Grid.Column="1" VerticalAlignment="Bottom" Margin="12,0,0,0"><Button Content="设为不可见" Command="{Binding HideChatCommand}" Style="{StaticResource DangerButton}"/><Button Content="恢复可见" Command="{Binding RestoreChatCommand}"/></WrapPanel></Grid>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="拍卖">
+          <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><DockPanel><Button Content="刷新" Command="{Binding RefreshAuctionsCommand}" DockPanel.Dock="Right"/><TextBlock Text="玩家拍卖治理" FontSize="24"/></DockPanel>
+            <DataGrid Grid.Row="1" ItemsSource="{Binding Auctions}" SelectedItem="{Binding SelectedAuction}" Margin="0,12"><DataGrid.Columns><DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="70"/><DataGridTextColumn Header="卖家" Binding="{Binding SellerUsername}" Width="130"/><DataGridTextColumn Header="资产" Binding="{Binding AssetName}" Width="*"/><DataGridTextColumn Header="数量" Binding="{Binding Quantity}" Width="80"/><DataGridTextColumn Header="单价" Binding="{Binding UnitPrice}" Width="110"/><DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="110"/><DataGridTextColumn Header="上架时间" Binding="{Binding CreatedAt,StringFormat=yyyy-MM-dd HH:mm}" Width="160"/></DataGrid.Columns></DataGrid>
+            <Button Grid.Row="2" Content="管理员撤拍并通过信箱返还" Command="{Binding CancelAuctionCommand}" Style="{StaticResource DangerButton}" HorizontalAlignment="Left"/>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="公告">
+          <Grid Margin="22"><Grid.ColumnDefinitions><ColumnDefinition Width="3*"/><ColumnDefinition Width="2*"/></Grid.ColumnDefinitions>
+            <Grid Margin="0,0,16,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><DockPanel><Button Content="刷新" Command="{Binding RefreshAnnouncementsCommand}" DockPanel.Dock="Right"/><TextBlock Text="运营公告" FontSize="24"/></DockPanel><DataGrid Grid.Row="1" ItemsSource="{Binding Announcements}" SelectedItem="{Binding SelectedAnnouncement}" Margin="0,12,0,0"><DataGrid.Columns><DataGridTextColumn Header="标题" Binding="{Binding Title}" Width="*"/><DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="100"/><DataGridCheckBoxColumn Header="置顶" Binding="{Binding Pinned}" Width="70"/><DataGridTextColumn Header="更新时间" Binding="{Binding UpdatedAt,StringFormat=yyyy-MM-dd HH:mm}" Width="160"/></DataGrid.Columns></DataGrid></Grid>
+            <Border Grid.Column="1" Background="{StaticResource PanelBrush}" Padding="18"><StackPanel><TextBlock Text="公告编辑与发布" FontSize="18"/><Label Content="标题"/><TextBox Text="{Binding AnnouncementTitle,UpdateSourceTrigger=PropertyChanged}"/><Label Content="正文"/><TextBox Text="{Binding AnnouncementBody,UpdateSourceTrigger=PropertyChanged}" Height="220" AcceptsReturn="True" TextWrapping="Wrap"/><Label Content="状态（draft 草稿 / published 发布 / withdrawn 撤回）"/><ComboBox ItemsSource="{Binding AnnouncementStatuses}" SelectedItem="{Binding AnnouncementStatus,Mode=TwoWay,UpdateSourceTrigger=PropertyChanged}"/><Label Content="操作原因（审计必填，至少 4 个字符）"/><TextBox Text="{Binding AnnouncementReason,UpdateSourceTrigger=PropertyChanged}"/><Button Content="保存并应用状态" Command="{Binding SaveAnnouncementCommand}" Style="{StaticResource PrimaryButton}" Margin="0,18,0,0"/></StackPanel></Border>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="内容">
+          <Grid Margin="22"><Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="3*"/></Grid.ColumnDefinitions>
+            <Grid Margin="0,0,14,0"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><DockPanel><Button Content="加载" Command="{Binding RefreshContentCommand}" DockPanel.Dock="Right"/><ComboBox ItemsSource="{Binding ContentResources}" SelectedItem="{Binding ContentResource}" Width="180" HorizontalAlignment="Left"/></DockPanel><ListBox Grid.Row="1" ItemsSource="{Binding ContentItems}" SelectedItem="{Binding SelectedContent}" DisplayMemberPath="Summary" Margin="0,10,0,0"/></Grid>
+            <Grid Grid.Column="1"><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="220"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><TextBox Text="{Binding SelectedContentSummary,Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/><TextBlock Grid.Row="1" Text="{Binding ContentFields}" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,10"/><TextBox Grid.Row="2" Text="{Binding ContentChanges}" AcceptsReturn="True" FontFamily="Consolas" VerticalScrollBarVisibility="Auto"/><Button Grid.Row="3" Content="校验并更新线上内容" Command="{Binding SaveContentCommand}" Style="{StaticResource DangerButton}" HorizontalAlignment="Left" Margin="0,10,0,0"/></Grid>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="审计">
+          <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><DockPanel><Button Content="刷新" Command="{Binding RefreshAuditCommand}" DockPanel.Dock="Right"/><TextBlock Text="不可变操作审计" FontSize="24"/></DockPanel><DataGrid Grid.Row="1" ItemsSource="{Binding Audits}" Margin="0,12,0,0"><DataGrid.Columns><DataGridTextColumn Header="时间" Binding="{Binding CreatedAt,StringFormat=yyyy-MM-dd HH:mm:ss}" Width="170"/><DataGridTextColumn Header="管理员" Binding="{Binding AdminUsername}" Width="120"/><DataGridTextColumn Header="动作" Binding="{Binding Action}" Width="220"/><DataGridTextColumn Header="目标类型" Binding="{Binding TargetType}" Width="130"/><DataGridTextColumn Header="目标" Binding="{Binding TargetId}" Width="100"/><DataGridTextColumn Header="原因" Binding="{Binding Reason}" Width="*"/><DataGridTextColumn Header="Request ID" Binding="{Binding RequestId}" Width="250"/></DataGrid.Columns></DataGrid></Grid>
+        </TabItem>
+
+        <TabItem Header="设置">
+          <StackPanel Margin="30" Width="620" HorizontalAlignment="Left"><TextBlock Text="连接设置" FontSize="24"/><Label Content="管理 API 地址" Margin="0,20,0,0"/><TextBox Text="{Binding ApiUrl}"/><TextBlock Text="API 地址会保存在当前 Windows 用户的 LocalAppData。密码和令牌只保存在内存。修改地址后请退出并重新登录。" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,16,0,0"/></StackPanel>
+        </TabItem>
+      </TabControl>
+
+      <Border Grid.Row="2" Background="#0D1310" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="12,0"><DockPanel><TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"/><TextBlock Text="处理中" DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="{StaticResource GoldBrush}"/></DockPanel></Border>
+    </Grid>
+  </Grid>
+</Window>

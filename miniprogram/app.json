@@ -1,0 +1,36 @@
+{
+  "pages": [
+    "pages/login/login",
+    "pages/character/character",
+    "pages/cultivate/cultivate",
+    "pages/explore/explore",
+    "pages/inventory/inventory",
+    "pages/more/more",
+    "pages/market/market",
+    "pages/profile/profile"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#17201a",
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "松间叩仙",
+    "backgroundColor": "#f2f0e8",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "custom": true,
+    "color": "#6c746d",
+    "selectedColor": "#a23d2b",
+    "backgroundColor": "#fbfaf5",
+    "borderStyle": "black",
+    "list": [
+      { "pagePath": "pages/cultivate/cultivate", "text": "修炼", "iconPath": "assets/tabbar/cultivate.png", "selectedIconPath": "assets/tabbar/cultivate-active.png" },
+      { "pagePath": "pages/explore/explore", "text": "游历", "iconPath": "assets/tabbar/explore.png", "selectedIconPath": "assets/tabbar/explore-active.png" },
+      { "pagePath": "pages/inventory/inventory", "text": "行囊", "iconPath": "assets/tabbar/inventory.png", "selectedIconPath": "assets/tabbar/inventory-active.png" },
+      { "pagePath": "pages/profile/profile", "text": "人物", "iconPath": "assets/tabbar/profile.png", "selectedIconPath": "assets/tabbar/profile-active.png" },
+      { "pagePath": "pages/more/more", "text": "更多", "iconPath": "assets/tabbar/more.png", "selectedIconPath": "assets/tabbar/more-active.png" }
+    ]
+  },
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "sitemapLocation": "sitemap.json"
+}

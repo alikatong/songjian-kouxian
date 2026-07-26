@@ -1,0 +1,7 @@
+<view class="tabbar">
+  <view class="tab {{selected === index ? 'active' : ''}}" wx:for="{{tabs}}" wx:key="pagePath" data-index="{{index}}" bindtap="switchTab" hover-class="pressed" hover-stay-time="100">
+    <view class="active-line"></view>
+    <image class="tab-icon" src="{{selected === index ? item.activeIcon : item.icon}}" mode="aspectFit"></image>
+    <text class="tab-text">{{item.text}}</text>
+  </view>
+</view>

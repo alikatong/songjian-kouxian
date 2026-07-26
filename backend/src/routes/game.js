@@ -1,0 +1,35 @@
+const router = require('express').Router();
+const auth = require('../middleware/auth');
+const controller = require('../controllers/gameController');
+const asyncHandler = require('../middleware/asyncHandler');
+
+router.use(auth);
+router.get('/', asyncHandler(controller.getGameState));
+router.get('/inventory', asyncHandler(controller.getInventory));
+router.get('/recipes', asyncHandler(controller.getRecipes));
+router.get('/techniques', asyncHandler(controller.getTechniques));
+router.get('/equipment', asyncHandler(controller.getEquipment));
+router.get('/battles', asyncHandler(controller.getBattleHistory));
+router.get('/explorations', asyncHandler(controller.getExplorationHistory));
+router.get('/announcements', asyncHandler(controller.getAnnouncements));
+router.post('/retreat/start', asyncHandler(controller.startRetreat));
+router.post('/retreat/end', asyncHandler(controller.endRetreat));
+router.post('/explore', asyncHandler(controller.explore));
+router.post('/pve/fight', asyncHandler(controller.fightEnemy));
+router.post('/pve/rest', asyncHandler(controller.rest));
+router.post('/pve/avoid', asyncHandler(controller.avoidEncounter));
+router.post('/events/choose', asyncHandler(controller.chooseEvent));
+router.post('/craft', asyncHandler(controller.startCraft));
+router.post('/craft/collect', asyncHandler(controller.collectCraft));
+router.post('/forge', asyncHandler(controller.startForging));
+router.post('/forge/collect', asyncHandler(controller.collectForging));
+router.post('/items/use', asyncHandler(controller.useItem));
+router.post('/items/protect', asyncHandler(controller.protectItem));
+router.post('/items/recycle', asyncHandler(controller.recycleItem));
+router.post('/techniques/equip', asyncHandler(controller.equipTechnique));
+router.post('/equipment/equip', asyncHandler(controller.equipWeapon));
+router.post('/equipment/unequip', asyncHandler(controller.unequipWeapon));
+router.post('/equipment/protect', asyncHandler(controller.protectEquipment));
+router.post('/equipment/recycle', asyncHandler(controller.recycleEquipment));
+
+module.exports = router;

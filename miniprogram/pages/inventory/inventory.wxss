@@ -1,0 +1,16 @@
+.mode-scroll { white-space: nowrap; }
+.modes { min-width: 820rpx; }
+.search-bar { display: flex; margin-bottom: 18rpx; gap: 12rpx; }
+.search-bar input { height: 66rpx; flex: 1; padding: 0 18rpx; border: 1rpx solid #aeb3ac; background: #fff; }
+.queue-grid { display: grid; gap: 10rpx; }
+.queue-slot { display: flex; padding: 16rpx; align-items: center; justify-content: space-between; background: #efeee7; }
+.collection-item { display: flex; margin-bottom: 16rpx; padding: 22rpx; align-items: flex-start; gap: 18rpx; border: 1rpx solid #cac8bd; border-top: 4rpx solid #a34a36; border-radius: 4rpx; background: #fbfaf6; }
+.collection-art { width: 112rpx; height: 112rpx; flex: 0 0 auto; border: 1rpx solid #c6c4ba; background: #eeede7; }
+.collection-content { min-width: 0; flex: 1; }
+.entry-head { display: flex; margin-bottom: 14rpx; align-items: flex-start; justify-content: space-between; gap: 14rpx; }
+.effect-line, .material-line { display: block; margin-top: 12rpx; padding: 10rpx 12rpx; background: #eeede7; color: #354139; font-size: 22rpx; line-height: 1.5; }
+.material-line { background: #f8f1df; color: #725c32; }
+.entry-actions { display: grid; width: 100%; margin-top: 18rpx; grid-template-columns: minmax(0, 1fr) 66rpx 66rpx; gap: 10rpx; }
+.action-main { width: 100%; min-width: 0; }
+.entry-actions .icon-command { width: 66rpx; min-width: 0; }
+.recycle { color: #8b382d; }

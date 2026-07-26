@@ -1,0 +1,75 @@
+version: '3.9'
+
+services:
+  database:
+    image: postgres:16-alpine
+    container_name: xxgame_database
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-xxgame}
+      POSTGRES_USER: ${DB_USER:-xxgame_app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+    volumes:
+      - xxgame_data:/var/lib/postgresql/data
+    networks:
+      - xxgame_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── 后端 API ────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: xxgame_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DB_HOST: ${DB_HOST:-database}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-xxgame}
+      DB_USER: ${DB_USER:-xxgame_app}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      DB_SSL: ${DB_SSL:-false}
+      DB_SCHEMA: ${DB_SCHEMA:-xxgame}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost}
+    expose:
+      - "3001"
+    command: ["sh", "-c", "node db/migrate.js && node src/server.js"]
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - xxgame_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── 前端 (Nginx 静态 + 反向代理) ───────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: xxgame_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - xxgame_net
+
+networks:
+  xxgame_net:
+    driver: bridge
+
+volumes:
+  xxgame_data:

@@ -1,0 +1,8 @@
+# 强制所有文本文件使用 LF（Windows 开发 → Linux 部署必须项）
+* text=auto eol=lf
+
+# 二进制文件不做处理
+*.png binary
+*.jpg binary
+*.ico binary
+*.webp binary

@@ -1,0 +1,30 @@
+<view class="page inventory-page">
+  <view class="page-head"><view><text class="page-kicker">{{kicker}}</text><view class="page-title">{{title}}</view><text class="page-subtitle">诸物归藏，丹器有序</text></view></view>
+  <scroll-view scroll-x class="mode-scroll"><view class="segmented modes"><button class="segment {{mode === 'items' ? 'active' : ''}}" data-mode="items" bindtap="switchMode">物品</button><button class="segment {{mode === 'equipment' ? 'active' : ''}}" data-mode="equipment" bindtap="switchMode">器物</button><button class="segment {{mode === 'techniques' ? 'active' : ''}}" data-mode="techniques" bindtap="switchMode">功法</button><button class="segment {{mode === 'craft' ? 'active' : ''}}" data-mode="craft" bindtap="switchMode">炼丹</button><button class="segment {{mode === 'forge' ? 'active' : ''}}" data-mode="forge" bindtap="switchMode">炼器</button></view></scroll-view>
+
+  <view class="search-bar"><input value="{{query}}" bindinput="onQuery" bindconfirm="search" confirm-type="search" placeholder="搜索名称、说明或来源" /><button class="secondary mini" bindtap="search">搜索</button></view>
+
+  <view class="panel queue-panel" wx:if="{{(mode === 'craft' || mode === 'forge') && (queue.length || equipmentQueue.length)}}"><view class="panel-title">炉中任务</view><view class="queue-grid"><view class="queue-slot" wx:for="{{queue}}" wx:key="id"><view><text class="item-name">{{item.name}} ×{{item.quantity}}</text><text class="item-meta">{{item.readyText}}</text></view><button class="secondary mini" data-kind="craft" data-id="{{item.id}}" bindtap="collect" disabled="{{!item.ready || busy}}">领取</button></view><view class="queue-slot" wx:for="{{equipmentQueue}}" wx:key="id"><view><text class="item-name">{{item.name}} ×{{item.quantity}}</text><text class="item-meta">{{item.readyText}}</text></view><button class="secondary mini" data-kind="forge" data-id="{{item.id}}" bindtap="collect" disabled="{{!item.ready || busy}}">领取</button></view></view></view>
+
+  <view class="loading" wx:if="{{loading}}">正在整理...</view>
+  <view class="empty" wx:elif="{{!items.length}}">当前没有可展示内容</view>
+  <view class="collection-list" wx:else>
+    <view class="collection-item" wx:for="{{items}}" wx:key="code">
+      <image class="collection-art" wx:if="{{item.image}}" src="{{item.image}}" mode="aspectFit" />
+      <view class="collection-content">
+      <view class="entry-head"><view><text class="item-name">{{item.name}}</text><text class="item-meta">{{item.typeName}} · {{item.major_realm || '当前境界'}}{{(mode === 'items' || mode === 'equipment') ? ' · 持有 ' + item.quantity : ''}}</text></view><text class="rarity-tag rarity-{{item.rarity}}">{{item.rarityName}}</text></view>
+      <text class="panel-copy">{{item.description}}</text>
+      <text class="effect-line" wx:if="{{item.effect_summary}}">{{item.effect_summary}}</text>
+      <text class="effect-line" wx:if="{{item.statsText}}">{{item.statsText}}</text>
+      <text class="material-line" wx:if="{{item.ingredientsText}}">所需：{{item.ingredientsText}}</text>
+      <text class="source-line">{{item.source_description || item.recipe_source_description || '可通过游历、炼制或事件获得。'}}</text>
+      <view class="entry-actions">
+        <button class="secondary action-main" wx:if="{{item.actionLabel}}" data-index="{{index}}" bindtap="act" disabled="{{!item.canAct || busy}}" loading="{{busy === 'primary-' + item.code}}">{{item.actionLabel}}</button>
+        <button class="icon-command" wx:if="{{mode === 'items' || mode === 'equipment'}}" data-index="{{index}}" data-action="protect" bindtap="act">{{item.locked ? '解' : '锁'}}</button>
+        <button class="icon-command recycle" wx:if="{{mode === 'items' || mode === 'equipment'}}" data-index="{{index}}" data-action="recycle" bindtap="act" disabled="{{!item.canRecycle}}">分</button>
+      </view>
+      </view>
+    </view>
+  </view>
+  <view class="pager" wx:if="{{totalPages > 1}}"><button class="secondary mini" bindtap="previous" disabled="{{page <= 1}}">上一页</button><text>{{page}} / {{totalPages}} · 共 {{total}} 项</text><button class="secondary mini" bindtap="next" disabled="{{page >= totalPages}}">下一页</button></view>
+</view>

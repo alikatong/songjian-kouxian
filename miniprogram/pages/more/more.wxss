@@ -1,0 +1,10 @@
+.more-page { padding-top: 0; }
+.feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14rpx; margin-bottom: 22rpx; }
+.feature { position: relative; min-height: 190rpx; padding: 22rpx; border: 1rpx solid #c8c6bc; border-top: 4rpx solid #a34a36; border-radius: 4rpx; background: #fbfaf6; }
+.feature-glyph { display: flex; width: 58rpx; height: 58rpx; margin-bottom: 17rpx; align-items: center; justify-content: center; border: 1rpx solid #a34a36; color: #a34a36; font-family: STSong, SimSun, serif; font-size: 28rpx; }
+.feature-title, .feature-copy { display: block; }
+.feature-title { font-size: 29rpx; font-weight: 700; }
+.feature-copy { width: 88%; margin-top: 7rpx; color: #6d756e; font-size: 21rpx; line-height: 1.45; }
+.feature-arrow { position: absolute; right: 15rpx; bottom: 14rpx; color: #919791; font-size: 40rpx; }
+.notice-panel { border-left-color: #b4893a; }
+.compact { padding: 20rpx 0; }

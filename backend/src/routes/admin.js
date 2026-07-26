@@ -1,0 +1,37 @@
+const express=require('express');
+const {rateLimit}=require('express-rate-limit');
+const asyncHandler=require('../middleware/asyncHandler');
+const adminAuth=require('../middleware/adminAuth');
+const authorize=require('../middleware/adminAuthorize');
+const auth=require('../controllers/adminAuthController');
+const controller=require('../controllers/adminController');
+
+const router=express.Router();
+router.get('/handshake',asyncHandler(auth.handshake));
+router.post('/auth/login',rateLimit({windowMs:15*60*1000,limit:20,standardHeaders:'draft-7',legacyHeaders:false}),asyncHandler(auth.login));
+router.use(adminAuth);
+router.get('/auth/me',asyncHandler(auth.me));
+router.get('/dashboard',asyncHandler(controller.dashboard));
+router.get('/catalogs',asyncHandler(controller.catalogs));
+router.get('/players',asyncHandler(controller.players));
+router.get('/players/:id',asyncHandler(controller.playerDetail));
+router.post('/players/:id/sanction',authorize('support'),asyncHandler(controller.sanction));
+router.post('/players/:id/resources',authorize('support'),asyncHandler(controller.adjustResource));
+router.post('/players/:id/restore',authorize('support'),asyncHandler(controller.restorePlayer));
+router.post('/players/:id/mail',authorize('support'),asyncHandler(controller.sendMail));
+router.post('/players/:id/inventory',authorize('operator'),asyncHandler(controller.adjustInventory));
+router.post('/players/:id/unlocks',authorize('operator'),asyncHandler(controller.unlock));
+router.get('/chats',asyncHandler(controller.chats));
+router.patch('/chats/:id',authorize('support'),asyncHandler(controller.moderateChat));
+router.get('/auctions',asyncHandler(controller.auctions));
+router.post('/auctions/:id/cancel',authorize('operator'),asyncHandler(controller.cancelAuction));
+router.get('/announcements',asyncHandler(controller.announcements));
+router.post('/announcements',authorize('operator'),asyncHandler(controller.createAnnouncement));
+router.put('/announcements/:id',authorize('operator'),asyncHandler(controller.updateAnnouncement));
+router.get('/content/:resource',asyncHandler(controller.contentList));
+router.get('/content/:resource/:id/impact',asyncHandler(controller.contentImpact));
+router.patch('/content/:resource/:id',authorize('operator'),asyncHandler(controller.updateContent));
+router.get('/audit',asyncHandler(controller.auditLogs));
+router.get('/requests/:key',asyncHandler(controller.requestStatus));
+
+module.exports=router;
