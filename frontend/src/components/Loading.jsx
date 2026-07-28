@@ -3,17 +3,16 @@ import React from 'react'
 
 const Loading = () => {
   return (
-    <div style={styles.overlay}>
+    <div style={styles.overlay} role="status" aria-label="正在读取洞府">
       <div style={styles.container}>
-        {/* 旋转金色圆圈 */}
-        <div style={styles.spinner}></div>
-        <p style={styles.text}>修炼中...</p>
+        <div style={styles.loader} aria-hidden="true"><span style={styles.loaderProgress} /></div>
+        <p style={styles.text}>正在进入洞府…</p>
       </div>
 
       <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+        @keyframes loadingSweep {
+          from { transform: translateX(-110%); }
+          to { transform: translateX(270%); }
         }
         @keyframes textGlow {
           0% { text-shadow: 0 0 5px #8a7020; }
@@ -41,15 +40,21 @@ const styles = {
     alignItems: 'center',
     gap: '20px',
   },
-  spinner: {
-    width: '60px',
-    height: '60px',
-    borderRadius: '50%',
-    border: '3px solid #21262d',
-    borderTopColor: '#d4af37',
-    borderRightColor: '#d4af37',
-    animation: 'spin 1s linear infinite',
-    boxShadow: '0 0 15px rgba(212, 175, 55, 0.4)',
+  loader: {
+    width: '120px',
+    height: '4px',
+    overflow: 'hidden',
+    borderRadius: '2px',
+    backgroundColor: '#263329',
+    boxShadow: '0 0 15px rgba(212, 175, 55, 0.16)',
+  },
+  loaderProgress: {
+    display: 'block',
+    width: '42%',
+    height: '100%',
+    borderRadius: '2px',
+    background: 'linear-gradient(90deg, transparent, #d4af37, #f0d68b, transparent)',
+    animation: 'loadingSweep 1.4s ease-in-out infinite',
   },
   text: {
     color: '#d4af37',

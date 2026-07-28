@@ -44,6 +44,50 @@ test('player auth forwards database failures instead of reporting an invalid tok
   assert.equal(res.statusCode, 200);
 });
 
+test('player auth accepts the HttpOnly session cookie for a same-origin write', async () => {
+  const loaded = loadMiddleware(
+    'auth',
+    async () => ({ rows: [{ id: 7, username: 'cookie-user', status: 'active', session_version: 2 }] }),
+    () => ({ userId: 7, sessionVersion: 2 }),
+  );
+  const res = responseRecorder();
+  let nextCalled = false;
+  const req = {
+    method: 'POST',
+    headers: { cookie: 'xxgame_session=valid', origin: 'http://localhost:5173' },
+  };
+  try {
+    await loaded.middleware(req, res, () => { nextCalled = true; });
+  } finally {
+    loaded.restore();
+  }
+  assert.equal(nextCalled, true);
+  assert.deepEqual(req.user, { userId: 7, username: 'cookie-user' });
+  assert.equal(req.authViaCookie, true);
+});
+
+test('player auth rejects cross-site state changes authenticated by a session cookie', async () => {
+  let queryCalled = false;
+  const loaded = loadMiddleware(
+    'auth',
+    async () => { queryCalled = true; return { rows: [] }; },
+    () => ({ userId: 7, sessionVersion: 2 }),
+  );
+  const res = responseRecorder();
+  const req = {
+    method: 'POST',
+    headers: { cookie: 'xxgame_session=valid', origin: 'https://attacker.example' },
+  };
+  try {
+    await loaded.middleware(req, res, () => { throw new Error('unexpected next'); });
+  } finally {
+    loaded.restore();
+  }
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.error, '跨站请求已被拒绝');
+  assert.equal(queryCalled, false);
+});
+
 test('admin auth forwards database failures instead of reporting an invalid token', async () => {
   const databaseError = new Error('database unavailable');
   const loaded = loadMiddleware('adminAuth', async () => { throw databaseError; }, () => ({ adminId: 3 }));

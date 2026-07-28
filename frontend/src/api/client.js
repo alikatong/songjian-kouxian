@@ -8,47 +8,22 @@ const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 const client = axios.create({
   baseURL: BASE_URL,
   timeout: 10000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 })
 
 /**
- * 请求拦截器
- * 自动从 localStorage 读取 token 并添加到请求头
- */
-client.interceptors.request.use(
-  (config) => {
-    // 从 zustand persist 存储中读取 token
-    try {
-      const stored = localStorage.getItem('xxgame-storage')
-      if (stored) {
-        const { state } = JSON.parse(stored)
-        if (state?.token) {
-          config.headers.Authorization = `Bearer ${state.token}`
-        }
-      }
-    } catch (e) {
-      // 解析失败则不添加 token
-    }
-    return config
-  },
-  (error) => Promise.reject(error)
-)
-
-/**
- * 响应拦截器
- * 401 时清除 token 并跳转到登录页
+ * 响应拦截器：受保护接口返回 401 时回到登录页。
+ * 会话 Cookie 为 HttpOnly，页面脚本无法读取或导出认证令牌。
  */
 client.interceptors.response.use(
   (response) => response,
   (error) => {
     const isAuthRequest = String(error.config?.url || '').startsWith('/auth/')
     if (error.response?.status === 401 && !isAuthRequest) {
-      // 清除本地存储的认证信息
-      localStorage.removeItem('xxgame-storage')
-      // 跳转到登录页
-      window.location.href = '/login'
+      window.location.replace('/login')
     }
     return Promise.reject(error)
   }
@@ -69,6 +44,8 @@ export const authAPI = {
    * @param {{ username: string, password: string }} data
    */
   login: (data) => client.post('/auth/login', data),
+  session: () => client.get('/auth/session'),
+  logout: () => client.post('/auth/logout'),
 }
 
 // ========================
@@ -120,6 +97,11 @@ export const gameAPI = {
   getEquipment: (params = {}) => client.get('/game/equipment', { params }),
   getBattles: (params = {}) => client.get('/game/battles', { params }),
   getExplorationHistory: (params = {}) => client.get('/game/explorations', { params }),
+  getTitles: () => client.get('/game/titles'),
+  setTitle: (title) => client.post('/game/titles/set', { title }),
+  getAchievements: () => client.get('/game/achievements'),
+  getLeaderboard: (type = 'all_time_realm', limit = 10) => client.get('/game/leaderboard', { params: { type, limit } }),
+  dailyCheckin: () => client.post('/game/checkin', {}),
   startRetreat: () => client.post('/game/retreat/start', {}),
   endRetreat: () => client.post('/game/retreat/end', {}),
   explore: (area = 'luoxia') => client.post('/game/explore', { area }),

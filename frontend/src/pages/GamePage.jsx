@@ -5,10 +5,11 @@ import {
   Lock, Mail, Recycle, ScrollText, Shield, Sparkles, Store, Swords, Timer, Unlock, UserRound, Users, X,
   Zap,
 } from 'lucide-react'
-import { characterAPI, gameAPI, marketAPI, socialAPI } from '../api/client'
+import { authAPI, characterAPI, gameAPI, marketAPI, socialAPI } from '../api/client'
 import useGameStore from '../stores/gameStore'
 import Loading from '../components/Loading'
 import './GamePage.css'
+import './GamePagePolish.css'
 
 const tabs = [
   { id: 'cultivate', label: '修炼', icon: Flame },
@@ -18,6 +19,8 @@ const tabs = [
   { id: 'equipment', label: '装备', icon: Shield },
   { id: 'inventory', label: '行囊', icon: Backpack },
   { id: 'profile', label: '人物', icon: UserRound },
+  { id: 'achievements', label: '成就', icon: Sparkles },
+  { id: 'leaderboard', label: '榜单', icon: Mountain },
   { id: 'social', label: '道友', icon: Users },
   { id: 'market', label: '坊市', icon: Store },
   { id: 'mail', label: '信箱', icon: Mail },
@@ -44,6 +47,12 @@ const statLabels = { hp: '气血', atk: '攻击', def: '防御', spd: '身法' }
 const rewardIconByCategory = { material: PackageCheck, technique: ScrollText, recipe: FlaskConical, equipment_recipe: Hammer, equipment: Shield, item: Backpack }
 const qualityFilters = ['all', 'common', 'uncommon', 'rare', 'epic', 'legendary']
 const PAGE_SIZE = 10
+const LEADERBOARD_LIMIT = 10
+const leaderboardModes = [
+  { id: 'all_time_realm', label: '境界榜', description: '按境界排序 · 同境界再比当前灵气', icon: Mountain, scoreLabel: '当前境界' },
+  { id: 'spirit_stones', label: '灵石榜', description: '按当前持有灵石排序', icon: Gem, scoreLabel: '持有灵石' },
+  { id: 'combat_power', label: '战力榜', description: '按气血、攻击、防御与身法综合计算', icon: Swords, scoreLabel: '综合战力' },
+]
 const createPageState = () => ({ items: [], total: 0, page: 1, pageSize: PAGE_SIZE, totalPages: 0 })
 const qiMotes = [
   [8, 10, 0.2, 4.8, 4], [88, 12, 1.1, 5.4, 3], [18, 27, 2.4, 4.2, 5],
@@ -234,6 +243,14 @@ function GamePage() {
   const [mailbox, setMailbox] = useState({ ...createPageState(), unclaimed: 0 })
   const [mailPage, setMailPage] = useState(1)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [titlesOpen, setTitlesOpen] = useState(false)
+  const [titles, setTitles] = useState([])
+  const [checkinOpen, setCheckinOpen] = useState(false)
+  const [achievements, setAchievements] = useState([])
+  const [achievementsLoading, setAchievementsLoading] = useState(false)
+  const [leaderboard, setLeaderboard] = useState({ type: 'all_time_realm', leaderboard: [], my_rank: null })
+  const [leaderboardType, setLeaderboardType] = useState('all_time_realm')
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false)
   const contentStageRef = useRef(null)
   const stateRequestId = useRef(0)
   const socialRequestId = useRef(0)
@@ -381,12 +398,62 @@ function GamePage() {
     }
   }, [mailPage])
 
+  const loadTitles = useCallback(async () => {
+    try {
+      const response = await gameAPI.getTitles()
+      setTitles(response.data.titles || [])
+    } catch (error) {
+      setNotice(error.response?.data?.error || '无法读取称号')
+    }
+  }, [])
+
+  const loadAchievements = useCallback(async () => {
+    setAchievementsLoading(true)
+    try {
+      const response = await gameAPI.getAchievements()
+      setAchievements(response.data.achievements || [])
+    } catch (error) {
+      setNotice(error.response?.data?.error || '无法读取成就')
+    } finally {
+      setAchievementsLoading(false)
+    }
+  }, [])
+
+  const loadLeaderboard = useCallback(async (type = 'all_time_realm') => {
+    setLeaderboardLoading(true)
+    try {
+      const response = await gameAPI.getLeaderboard(type, LEADERBOARD_LIMIT)
+      setLeaderboard({
+        ...response.data,
+        type: response.data.type || type,
+        leaderboard: (response.data.leaderboard || []).slice(0, LEADERBOARD_LIMIT),
+      })
+    } catch (error) {
+      setNotice(error.response?.data?.error || '无法读取榜单')
+    } finally {
+      setLeaderboardLoading(false)
+    }
+  }, [])
+
+  const switchLeaderboard = (type) => {
+    if (type === leaderboardType && leaderboardLoading) return
+    setLeaderboardType(type)
+    loadLeaderboard(type)
+  }
+
   useEffect(() => {
     if (activeTab === 'market') loadMarket()
     if (activeTab === 'mail') loadMailbox()
-  }, [activeTab, loadMarket, loadMailbox])
+    if (activeTab === 'achievements') loadAchievements()
+    if (activeTab === 'leaderboard') {
+      setLeaderboardType('all_time_realm')
+      loadLeaderboard('all_time_realm')
+    }
+  }, [activeTab, loadMarket, loadMailbox, loadAchievements, loadLeaderboard])
 
   const character = state?.character
+  const activeLeaderboardMode = leaderboardModes.find((mode) => mode.id === leaderboardType) || leaderboardModes[0]
+  const ActiveLeaderboardIcon = activeLeaderboardMode.icon
   const currentArea = state?.areas?.find((area) => area.code === activeArea)
   const recentBattles = gamePages.battles.items || []
   const selectedAuctionAsset = useMemo(() => marketPages.sellable.items?.find(
@@ -609,7 +676,11 @@ function GamePage() {
       setNotice(data.result)
     }
   }
-  const signOut = () => { logout(); window.location.replace('/login') }
+  const signOut = async () => {
+    try { await authAPI.logout() } catch (_error) { /* The local state must still be cleared. */ }
+    logout()
+    window.location.replace('/login')
+  }
   const socialRun = async (key, action) => {
     setBusy(key)
     try {
@@ -654,6 +725,25 @@ function GamePage() {
     const result = await run(`recycle-${recycleTarget.code}`, action)
     if (result) setRecycleTarget(null)
   }
+  const openTitles = () => {
+    setTitlesOpen(true)
+    loadTitles()
+  }
+  const switchTitle = async (title) => {
+    const result = await run(`title-${title}`, () => gameAPI.setTitle(title))
+    if (result) {
+      setTitlesOpen(false)
+      await loadState(true)
+    }
+  }
+  const doCheckin = async () => {
+    const result = await run('checkin', () => gameAPI.dailyCheckin())
+    if (result) {
+      setCheckinOpen(false)
+      await loadState(true)
+      setNotice(result.message || '签到成功')
+    }
+  }
   const marketRun = async (key, action, reloadMail = false) => {
     setBusy(key)
     try {
@@ -696,6 +786,7 @@ function GamePage() {
       <header className="topbar">
         <div className="brand"><img src="/songjian-mark.png" alt="" aria-hidden="true" /><div><strong>松间叩仙</strong><small>{character.origin?.name} · {character.realm}</small></div></div>
         <div className="top-actions">
+          <button className="icon-button checkin-button" onClick={() => setCheckinOpen(true)} title="每日签到" aria-label="每日签到"><Sparkles size={18} /></button>
           <button className="icon-button announcement-button" onClick={() => { setAnnouncementsOpen(true); loadAnnouncements(1) }} title="查看公告" aria-label="查看公告"><Bell size={18} />{announcements.total > 0 && <b>{announcements.total}</b>}</button>
           <span className="account"><UserRound size={15} />{character.name || user?.username}</span>
           <button className="icon-button" onClick={signOut} title="退出登录" aria-label="退出登录"><LogOut size={18} /></button>
@@ -847,8 +938,48 @@ function GamePage() {
             <div className="profile-layout"><Portrait character={character} alt={`${character.origin?.name}角色画像`} /><div className="profile-hero"><div><span>{character.gender === 'female' ? '女修' : '男修'} · {character.title}</span><h2>{character.realm}</h2><p>{character.realm_desc}</p></div><div><small>出身</small><strong>{character.origin?.name}</strong><p>{character.origin?.description}</p></div></div></div>
             <div className="stat-grid"><div><span>气血</span><b>{character.stats.hp}/{character.stats.hp_max}</b></div><div><span>攻击</span><b>{character.stats.atk}</b></div><div><span>防御</span><b>{character.stats.def}</b></div><div><span>身法</span><b>{character.stats.spd}</b></div><div><span>每息灵气</span><b>{formatNumber(character.qi_per_second)}</b></div><div><span>闭关上限</span><b>{character.offline_qi_cap_hrs} 时辰</b></div></div>
             <div className="profile-section"><small>当前功法</small><h3>{character.active_technique?.name || '未修功法'}</h3><p>{character.active_technique?.description || '尚未选择主修功法。'}</p></div>
+            <div className="profile-section"><small>当前称号</small><h3>{character.title}</h3><button className="secondary-command" onClick={openTitles}>切换称号</button></div>
             <div className="profile-section"><small>当前器装</small><h3>{[character.equipped_weapons?.attack?.name, character.equipped_weapons?.defense?.name].filter(Boolean).join(' · ') || '赤手空拳'}</h3><p>武器与护器各可装备一件：武器主攻击，护器主防御与气血，两件属性共同计入战斗。</p></div>
             <div className="profile-section"><small>出身带来的细微差异</small><div className="origin-bonuses">{Object.entries(character.origin?.bonuses || {}).map(([key, value]) => <span key={key}>{({ hp: '气血', atk: '攻击', def: '防御', spd: '身法', fate_points: '奇缘' })[key] || key} +{value}</span>)}</div></div>
+          </div>}
+
+          {activeTab === 'achievements' && <div className="achievements-view">
+            <div className="section-heading"><div><small>修仙路上</small><h1>成就荣耀</h1></div><Sparkles size={24} /></div>
+            <div className="achievements-grid">{achievementsLoading && <p className="empty-state page-loading-state">正在读取成就记录…</p>}{!achievementsLoading && achievements.map((achievement) => {
+              const req = achievement.requirement || {}
+              const reward = achievement.reward || {}
+              const progress = achievement.progress || 0
+              const target = req.count || 1
+              const progressPercent = achievement.completed ? 100 : Math.min(100, (progress / target) * 100)
+              return <article key={achievement.code} className={achievement.completed ? 'achievement-completed' : 'achievement-incomplete'}>
+                <div className="achievement-icon">{achievement.completed ? <Check size={28} /> : <Sparkles size={28} />}</div>
+                <div className="achievement-content">
+                  <div className="achievement-head"><h3>{achievement.name}</h3><span className={`achievement-category category-${achievement.category}`}>{({ cultivation: '修炼', combat: '战斗', exploration: '游历', social: '社交', collection: '收藏' })[achievement.category]}</span></div>
+                  <p>{achievement.description}</p>
+                  {!achievement.completed && <div className="achievement-progress"><div className="progress-bar"><div className="progress-fill" style={{ width: `${progressPercent}%` }}></div></div><span>{progress} / {target}</span></div>}
+                  {achievement.completed && <time>已于 {new Date(achievement.completed_at).toLocaleDateString('zh-CN')} 达成</time>}
+                  <div className="achievement-rewards">{reward.spirit_stones && <span><Gem size={14} />{reward.spirit_stones} 灵石</span>}{reward.fate_points && <span><Sparkles size={14} />{reward.fate_points} 奇缘</span>}{reward.title && <span>称号「{reward.title}」</span>}</div>
+                </div>
+              </article>
+            })}{!achievementsLoading && !achievements.length && <p className="empty-state">尚未解锁任何成就。</p>}</div>
+          </div>}
+
+          {activeTab === 'leaderboard' && <div className="leaderboard-view">
+            <div className="section-heading"><div><small>道途排名</small><h1>修士榜单</h1></div><ActiveLeaderboardIcon size={24} /></div>
+            <div className="leaderboard-modes" role="tablist" aria-label="榜单类型">
+              {leaderboardModes.map(({ id, label, icon: Icon }) => <button key={id} role="tab" aria-selected={leaderboardType === id} className={leaderboardType === id ? 'active' : ''} onClick={() => switchLeaderboard(id)} disabled={leaderboardLoading}><Icon size={16} /><span>{label}</span></button>)}
+            </div>
+            <div className="leaderboard-caption"><span>全服前 {LEADERBOARD_LIMIT} 名</span><span>{activeLeaderboardMode.description}</span></div>
+            <div className="leaderboard-list">{leaderboardLoading && <p className="empty-state page-loading-state">正在读取{activeLeaderboardMode.label}…</p>}{!leaderboardLoading && leaderboard.leaderboard.map((entry, index) => {
+              const isMe = entry.id === character.id
+              const displayScore = leaderboardType === 'all_time_realm' ? (entry.realm || '境界未明') : formatNumber(entry.score)
+              return <article key={entry.id} className={isMe ? 'leaderboard-entry-me' : ''}>
+                <div className="leaderboard-rank">{index + 1}</div>
+                <div className="leaderboard-info"><strong>{entry.character_name}</strong><span>修士道号</span></div>
+                <div className="leaderboard-score"><b>{displayScore}</b><small>{activeLeaderboardMode.scoreLabel}</small></div>
+              </article>
+            })}{!leaderboardLoading && !leaderboard.leaderboard.length && <p className="empty-state">榜单为空。</p>}</div>
+            {!leaderboardLoading && leaderboard.my_rank && <div className="my-rank-banner"><ActiveLeaderboardIcon size={18} /><span>我的排名</span><strong>第 {leaderboard.my_rank} 名</strong></div>}
           </div>}
 
           {activeTab === 'market' && <div className="market-view">
@@ -881,6 +1012,8 @@ function GamePage() {
       </main>
 
       {mobileMenuOpen && <div className="mobile-menu-backdrop" onClick={() => setMobileMenuOpen(false)}><div className="mobile-menu-sheet" onClick={(event) => event.stopPropagation()}><div><span>更多功能</span><button className="icon-button" title="关闭" onClick={() => setMobileMenuOpen(false)}><X size={18} /></button></div><nav>{tabs.filter((tab) => !mobilePrimaryTabs.has(tab.id)).map(({ id, label, icon: Icon }) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => selectTab(id)}><Icon size={20} /><span>{label}</span><ChevronRight size={16} /></button>)}</nav></div></div>}
+      {titlesOpen && <div className="dialog-backdrop"><div className="event-dialog titles-dialog" role="dialog" aria-modal="true" aria-labelledby="titles-title"><div className="dialog-title-row"><div><span className="event-kicker">荣耀印记</span><h2 id="titles-title">称号管理</h2></div><button className="icon-button" title="关闭" onClick={() => setTitlesOpen(false)}><X size={18} /></button></div><div className="titles-list">{titles.map((item) => <article key={item.title} className={item.title === character.title ? 'active-title' : ''}><div><strong>{item.title}</strong><time>{new Date(item.unlocked_at).toLocaleDateString('zh-CN')}</time></div><button className="secondary-command" onClick={() => switchTitle(item.title)} disabled={item.title === character.title || Boolean(busy)}>{item.title === character.title ? '当前称号' : '设为称号'}</button></article>)}{!titles.length && <p className="empty-state">尚未解锁任何称号。</p>}</div></div></div>}
+      {checkinOpen && <div className="dialog-backdrop"><div className="dialog checkin-dialog"><Sparkles size={30} /><h2>每日签到</h2><p>连续签到可获得灵石、奇缘和稀有材料奖励。</p><div className="checkin-info"><span>连续签到 <b>{character.checkin_streak || 0}</b> 天</span><span>上次签到 <b>{character.last_checkin_date ? new Date(character.last_checkin_date).toLocaleDateString('zh-CN') : '尚未签到'}</b></span></div><div className="checkin-rewards"><div><small>第1-2天</small><strong>50 灵石</strong></div><div><small>第3-6天</small><strong>100 灵石 + 1 奇缘</strong></div><div><small>第7天</small><strong>500 灵石 + 3 奇缘 + 稀有材料 + 称号「勤修不辍」</strong></div></div><div className="dialog-actions"><button className="secondary-command" onClick={() => setCheckinOpen(false)}>取消</button><button className="primary-command" onClick={doCheckin} disabled={Boolean(busy)}><Sparkles size={17} />签到</button></div></div></div>}
       {announcementsOpen && <div className="dialog-backdrop"><div className="event-dialog announcement-dialog" role="dialog" aria-modal="true" aria-labelledby="announcement-title"><div className="dialog-title-row"><div><span className="event-kicker">宗门传讯</span><h2 id="announcement-title">游戏公告</h2></div><button className="icon-button" title="关闭公告" onClick={() => setAnnouncementsOpen(false)}><X size={18} /></button></div><div className="announcement-list">{announcements.items.map((announcement) => <article key={announcement.id}><div><strong>{announcement.pinned ? '置顶 · ' : ''}{announcement.title}</strong><time>{new Date(announcement.updated_at).toLocaleString('zh-CN')}</time></div><p>{announcement.body}</p></article>)}{!announcements.items.length && <p className="empty-state">当前没有公告。</p>}</div><Pagination page={announcements.page} total={announcements.total} onChange={loadAnnouncements} /></div></div>}
       {encounter && !explorationResult && <div className="dialog-backdrop"><div className="event-dialog encounter-dialog">{encounter.image_url && <img className="boss-art" src={encounter.image_url} alt={encounter.name} />}<span className="event-kicker">突发遭遇 · {combatRankLabels[encounter.rank]}</span><h2>{encounter.name}</h2><p>{encounter.description}</p><div className="encounter-forecast"><div><small>胜负预估</small><strong className={`forecast-${encounter.forecast}`}>{encounter.forecast}</strong></div><div><small>我方 / 敌方战力</small><strong>{formatNumber(encounter.player_power)} / {formatNumber(encounter.enemy_power)}</strong></div><div><small>挑战消耗</small><strong>{encounterStaminaCost} 精力</strong></div></div><div className="enemy-stats"><span>气血 <b>{formatNumber(encounter.hp)}</b></span><span>攻击 <b>{formatNumber(encounter.atk)}</b></span><span>防御 <b>{formatNumber(encounter.def)}</b></span><span>身法 <b>{formatNumber(encounter.spd)}</b></span></div>{encounter.missing_requirements?.length > 0 && <div className="boss-requirements"><strong>尚未具备挑战资格</strong>{encounter.missing_requirements.map((requirement) => <span key={requirement}>{requirement}</span>)}</div>}<div className="dialog-actions"><button className="secondary-command" onClick={avoidEncounter} disabled={Boolean(busy)}>避开</button><button className="primary-command" onClick={() => fight(encounter.code)} disabled={Boolean(busy) || encounter.can_challenge === false || character.stats.hp <= 1 || character.stamina.current < encounterStaminaCost}><Swords size={17} />迎战 · {encounterStaminaCost}</button></div>{character.stamina.current < encounterStaminaCost && <p className="form-error">精力不足，可等待恢复或在行囊服用养神丸。</p>}</div></div>}
       {recycleTarget && <div className="dialog-backdrop"><div className="dialog recycle-dialog"><Recycle size={30} /><h2>{recycleTarget.kind === 'equipment' ? '分解器物' : '销毁物品'}</h2><p>将消耗 <strong>{recycleTarget.name}</strong>，按真实炼器配方返还 30% 材料，每种材料不足 1 份时不返还。此操作不可撤销。</p><label><span>处理数量（最多 {recycleTarget.max}）</span><input type="number" min="1" max={recycleTarget.max} value={recycleAmount} onChange={(event) => setRecycleAmount(Math.max(1, Math.min(recycleTarget.max, Number(event.target.value) || 1)))} /></label><div className="dialog-actions"><button className="secondary-command" onClick={() => setRecycleTarget(null)}>取消</button><button className="primary-command danger-primary" onClick={confirmRecycle} disabled={busy === `recycle-${recycleTarget.code}`}><Recycle size={17} />确认处理</button></div></div></div>}

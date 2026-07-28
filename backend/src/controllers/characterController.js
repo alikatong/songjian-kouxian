@@ -240,12 +240,18 @@ async function breakthrough(req, res, next) {
           isMajorBreakthrough,
           random: Math.random(),
         });
-        let failureRealm = character;
+        const currentRealm = {
+          id: character.realm_id,
+          order_index: character.order_index,
+          qi_required: character.qi_required,
+          qi_base_per_sec: character.qi_per_second,
+        };
+        let failureRealm = currentRealm;
         if (isMajorBreakthrough && !protectedFailure) {
           failureRealm = (await client.query(
             'SELECT * FROM realms WHERE order_index = $1',
             [Math.max(0, character.order_index - 1)],
-          )).rows[0] || character;
+          )).rows[0] || currentRealm;
           demoted = failureRealm.id !== character.realm_id;
         }
         const retainedQi = protectedFailure

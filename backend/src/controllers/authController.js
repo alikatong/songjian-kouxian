@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { body, validationResult } = require('express-validator');
 const { query, withTransaction } = require('../config/db');
 const wechatService = require('../services/wechatService');
+const { setSessionCookie, clearSessionCookie } = require('../security/sessionCookie');
 
 /** 生成 JWT */
 function signToken(user) {
@@ -12,6 +13,11 @@ function signToken(user) {
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
+}
+
+function respondWithSession(res, status, user) {
+  setSessionCookie(res, signToken(user));
+  return res.status(status).json({ user: { id: user.id, username: user.username } });
 }
 
 /** POST /api/auth/register */
@@ -48,10 +54,8 @@ async function register(req, res, next) {
       [username, passwordHash]
     );
 
-    const user  = result.rows[0];
-    const token = signToken(user);
-
-    res.status(201).json({ token, user: { id: user.id, username: user.username } });
+    const user = result.rows[0];
+    return respondWithSession(res, 201, user);
   } catch (err) {
     if (err.code === '23505') {
       return res.status(409).json({ error: '用户名已被使用' });
@@ -113,10 +117,28 @@ async function login(req, res, next) {
     // 更新最后登录时间
     await query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
 
-    const token = signToken(user);
-    res.json({ token, user: { id: user.id, username: user.username } });
+    return respondWithSession(res, 200, user);
   } catch (err) {
     next(err);
+  }
+}
+
+/** GET /api/auth/session */
+function getSession(req, res) {
+  return res.json({ user: req.user });
+}
+
+/** POST /api/auth/logout */
+async function logout(req, res, next) {
+  try {
+    await query(
+      'UPDATE users SET session_version = session_version + 1 WHERE id = $1',
+      [req.user.userId],
+    );
+    clearSessionCookie(res);
+    return res.status(204).end();
+  } catch (error) {
+    return next(error);
   }
 }
 
@@ -188,6 +210,6 @@ async function wechatPhoneLogin(req, res, next) {
 }
 
 module.exports = {
-  register, login, wechatPhoneLogin,
+  register, login, logout, getSession, wechatPhoneLogin,
   registerValidation, loginValidation, wechatPhoneValidation,
 };

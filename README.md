@@ -159,8 +159,9 @@ Copy-Item backend/.env.example backend/.env
 | `DB_SSL` | 远程数据库需要 SSL 时设为 `true` |
 | `DB_SCHEMA` | 应用使用的独立 Schema，默认 `xxgame` |
 | `JWT_SECRET` | 玩家 JWT 密钥，生产环境至少 64 位随机字符串 |
+| `AUTH_COOKIE_MAX_AGE_MS` | Web 会话 Cookie 有效期（毫秒），默认 7 天；生产环境需使用 HTTPS |
 | `ADMIN_JWT_SECRET` | 独立的管理端 JWT 密钥 |
-| `CLIENT_ORIGIN` | 允许访问 API 的 Web 来源 |
+| `CLIENT_ORIGIN` | 允许访问 API 的 Web 来源，多个地址用英文逗号分隔 |
 | `WECHAT_APP_ID` / `WECHAT_APP_SECRET` | 仅实验性小程序登录需要 |
 
 不要提交真实 `.env`、数据库口令或微信密钥。

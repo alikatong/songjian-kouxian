@@ -11,14 +11,25 @@ const socialRouter    = require('./routes/social');
 const marketRouter    = require('./routes/market');
 const adminRouter     = require('./routes/admin');
 const crypto          = require('crypto');
+const { isAllowedBrowserOrigin } = require('./security/sessionCookie');
 
 const app = express();
 
 // ── 安全中间件 ─────────────────────────────────────────────
+app.disable('x-powered-by');
 app.use(helmet());
 app.use(cors({
-  origin:      process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  origin(origin, callback) {
+    if (!origin || isAllowedBrowserOrigin(origin)) return callback(null, true);
+    const error = new Error('不允许的跨域来源');
+    error.status = 403;
+    return callback(error);
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['X-Request-Id'],
+  maxAge: 600,
 }));
 app.use(express.json({ limit: '32kb' }));
 app.use((req, _res, next) => {
@@ -38,7 +49,7 @@ app.use('/assets', express.static(path.join(__dirname, '../public/assets'), {
   maxAge: process.env.NODE_ENV === 'production' ? '30d' : 0,
   immutable: process.env.NODE_ENV === 'production',
   setHeaders(res) {
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
   },
 }));
 

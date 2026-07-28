@@ -31,6 +31,7 @@ const bossPillByArea = {
   mist_forest: 'major_pill_yijin', clear_spring_cliff: 'major_pill_xisui', red_maple_valley: 'major_pill_huanxue',
   mirror_lake: 'major_pill_tianren', spirit_vein_valley: 'major_pill_lianqi', sect_outer_court: 'major_pill_zhujia',
   alchemy_peak: 'major_pill_jindan', ancient_soul_ruins: 'major_pill_yuanying', law_abyss: 'major_pill_huashen',
+  heaven_gate: 'major_pill_dacheng',
 };
 
 function effectSummary(effect = {}) {
@@ -976,6 +977,9 @@ async function startRetreat(req, res, next) {
       if (character.retreat_started_at) {
         const error = new Error('已经在闭关中'); error.status = 409; throw error;
       }
+      if (character.pending_enemy_code) {
+        const error = new Error('附近有敌人逼近，无法安心闭关'); error.status = 409; throw error;
+      }
       await settleOffline(client, character);
       if (BigInt(character.current_qi) >= BigInt(character.qi_required)) {
         const error = new Error('灵气已经圆满，请先尝试破境'); error.status = 409; throw error;
@@ -1036,7 +1040,7 @@ async function explore(req, res, next) {
         ? (Date.now() - new Date(character.last_explore_at).getTime()) / 1000
         : cooldown;
       if (elapsed < cooldown) {
-        const error = new Error(`调息中，还需 ${Math.ceil(cooldown - elapsed)} 秒`);
+        const error = new Error(`游历太频繁，还需 ${Math.ceil(cooldown - elapsed)} 秒`);
         error.status = 429;
         error.retryAfter = Math.ceil(cooldown - elapsed);
         throw error;
@@ -1650,9 +1654,274 @@ async function getAnnouncements(req, res, next) {
   } catch (error) { return next(error); }
 }
 
+async function getTitles(req, res, next) {
+  try {
+    const result = await withTransaction(async (client) => {
+      const character = await playerCharacter(client, req);
+      const titles = (await client.query(
+        `SELECT title, unlocked_at FROM character_titles
+         WHERE character_id = $1
+         ORDER BY unlocked_at DESC`,
+        [character.id],
+      )).rows;
+      return { titles, active_title: character.active_title };
+    });
+    return res.json(result);
+  } catch (error) { return next(error); }
+}
+
+async function setTitle(req, res, next) {
+  if (typeof req.body.title !== 'string') return res.status(400).json({ error: '请选择称号' });
+  try {
+    const result = await withTransaction(async (client) => {
+      const character = await getCharacterRow(client, req.user.userId, true);
+      if (!character) { const error = new Error('角色不存在'); error.status = 404; throw error; }
+      const owned = (await client.query(
+        'SELECT 1 FROM character_titles WHERE character_id = $1 AND title = $2',
+        [character.id, req.body.title],
+      )).rows[0];
+      if (!owned) { const error = new Error('尚未解锁该称号'); error.status = 403; throw error; }
+      await client.query('UPDATE characters SET active_title = $1 WHERE id = $2', [req.body.title, character.id]);
+      return { message: `已将称号设为「${req.body.title}」` };
+    });
+    return res.json(result);
+  } catch (error) { return next(error); }
+}
+
+async function dailyCheckin(req, res, next) {
+  try {
+    const result = await withTransaction(async (client) => {
+      const character = await getCharacterRow(client, req.user.userId, true);
+      if (!character) { const error = new Error('角色不存在'); error.status = 404; throw error; }
+
+      const today = new Date().toISOString().split('T')[0];
+      const lastCheckin = character.last_checkin_date ? new Date(character.last_checkin_date).toISOString().split('T')[0] : null;
+
+      if (lastCheckin === today) {
+        const error = new Error('今日已签到，明日再来'); error.status = 409; throw error;
+      }
+
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const isConsecutive = lastCheckin === yesterday;
+      const newStreak = isConsecutive ? (character.checkin_streak || 0) + 1 : 1;
+
+      await client.query(
+        'INSERT INTO character_checkins (character_id, checkin_date, streak_days) VALUES ($1, $2, $3)',
+        [character.id, today, newStreak],
+      );
+
+      let spiritStones = 50;
+      let fatePoints = 0;
+      let items = [];
+
+      if (newStreak === 7) {
+        spiritStones = 500;
+        fatePoints = 3;
+        items.push({ code: 'herb_rare_random', quantity: 5 });
+        await client.query(
+          'INSERT INTO character_titles (character_id, title) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [character.id, '勤修不辍'],
+        );
+      } else if (newStreak % 7 === 0) {
+        spiritStones = 300;
+        fatePoints = 2;
+      } else if (newStreak >= 3) {
+        spiritStones = 100;
+        fatePoints = 1;
+      }
+
+      await client.query(
+        `UPDATE characters SET
+          checkin_streak = $1,
+          last_checkin_date = $2,
+          spirit_stones = spirit_stones + $3,
+          fate_points = fate_points + $4
+         WHERE id = $5`,
+        [newStreak, today, spiritStones, fatePoints, character.id],
+      );
+
+      for (const item of items) {
+        await addInventory(client, character.id, item.code, item.quantity);
+      }
+
+      return {
+        message: `签到成功！连续${newStreak}天`,
+        streak: newStreak,
+        rewards: { spirit_stones: spiritStones, fate_points: fatePoints, items },
+        unlocked_title: newStreak === 7 ? '勤修不辍' : null,
+      };
+    });
+    return res.json(result);
+  } catch (error) { return next(error); }
+}
+
+async function getAchievements(req, res, next) {
+  try {
+    const result = await withTransaction(async (client) => {
+      const character = await playerCharacter(client, req);
+      const achievements = (await client.query(
+        `SELECT a.code, a.name, a.description, a.category, a.icon, a.requirement, a.reward,
+                COALESCE(ca.progress, 0) AS progress, COALESCE(ca.completed, FALSE) AS completed,
+                ca.completed_at
+         FROM achievements a
+         LEFT JOIN character_achievements ca ON ca.achievement_id = a.id AND ca.character_id = $1
+         ORDER BY a.sort_order, a.id`,
+        [character.id],
+      )).rows;
+      return { achievements };
+    });
+    return res.json(result);
+  } catch (error) { return next(error); }
+}
+
+async function getLeaderboard(req, res, next) {
+  const requestedType = typeof req.query.type === 'string' ? req.query.type : 'all_time_realm';
+  const type = ['all_time_realm', 'spirit_stones', 'combat_power'].includes(requestedType)
+    ? requestedType
+    : 'all_time_realm';
+  const limit = Math.min(10, Math.max(1, Number(req.query.limit) || 10));
+  try {
+    const result = await withTransaction(async (client) => {
+      const character = await playerCharacter(client, req);
+      const rankedSql = type === 'all_time_realm'
+        ? `
+          WITH ranked AS (
+            SELECT c.id, c.name AS character_name,
+                   COALESCE(r.major_realm, '') || COALESCE(r.sub_stage, '') AS realm,
+                   r.order_index AS score,
+                   ROW_NUMBER() OVER (
+                     ORDER BY r.order_index DESC, c.current_qi DESC, c.id ASC
+                   ) AS rank
+            FROM characters c
+            JOIN realms r ON r.id = c.realm_id
+          )
+          SELECT id, character_name, realm, score, rank
+          FROM ranked
+          WHERE rank <= $1 OR id = $2
+          ORDER BY rank`
+        : type === 'spirit_stones'
+          ? `
+            WITH ranked AS (
+              SELECT c.id, c.name AS character_name,
+                     COALESCE(r.major_realm, '') || COALESCE(r.sub_stage, '') AS realm,
+                     COALESCE(c.spirit_stones, 0) AS score,
+                     ROW_NUMBER() OVER (
+                       ORDER BY c.spirit_stones DESC NULLS LAST,
+                                r.order_index DESC, c.current_qi DESC, c.id ASC
+                     ) AS rank
+              FROM characters c
+              JOIN realms r ON r.id = c.realm_id
+            )
+            SELECT id, character_name, realm, score, rank
+            FROM ranked
+            WHERE rank <= $1 OR id = $2
+            ORDER BY rank`
+          : `
+            WITH equipment_stats AS (
+              SELECT ce.character_id,
+                     SUM(e.attack_bonus) AS equipment_atk,
+                     SUM(e.defense_bonus) AS equipment_def,
+                     SUM(e.hp_bonus) AS equipment_hp,
+                     SUM(e.speed_bonus) AS equipment_spd
+              FROM character_equipment ce
+              JOIN equipment e ON e.id = ce.equipment_id
+              WHERE ce.equipped_slot IS NOT NULL
+              GROUP BY ce.character_id
+            ), base_stats AS (
+              SELECT c.id, c.name AS character_name, c.current_qi,
+                     COALESCE(r.major_realm, '') || COALESCE(r.sub_stage, '') AS realm,
+                     r.order_index,
+                     c.hp, c.hp_max, c.atk, c.def, c.spd,
+                     COALESCE(c.spirit_stones, 0) AS spirit_stones,
+                     COALESCE(es.equipment_atk, 0) AS equipment_atk,
+                     COALESCE(es.equipment_def, 0) AS equipment_def,
+                     COALESCE(es.equipment_hp, 0) AS equipment_hp,
+                     COALESCE(es.equipment_spd, 0) AS equipment_spd,
+                     COALESCE(t.stat_bonuses ->> 'hp', '0')::numeric *
+                       CASE t.rarity
+                         WHEN 'uncommon' THEN 2
+                         WHEN 'rare' THEN 4
+                         WHEN 'epic' THEN 7
+                         WHEN 'legendary' THEN 12
+                         ELSE 1
+                       END AS technique_hp,
+                     COALESCE(t.stat_bonuses ->> 'atk', '0')::numeric *
+                       CASE t.rarity
+                         WHEN 'uncommon' THEN 2
+                         WHEN 'rare' THEN 4
+                         WHEN 'epic' THEN 7
+                         WHEN 'legendary' THEN 12
+                         ELSE 1
+                       END AS technique_atk,
+                     COALESCE(t.stat_bonuses ->> 'def', '0')::numeric *
+                       CASE t.rarity
+                         WHEN 'uncommon' THEN 2
+                         WHEN 'rare' THEN 4
+                         WHEN 'epic' THEN 7
+                         WHEN 'legendary' THEN 12
+                         ELSE 1
+                       END AS technique_def,
+                     COALESCE(t.stat_bonuses ->> 'spd', '0')::numeric *
+                       CASE t.rarity
+                         WHEN 'uncommon' THEN 2
+                         WHEN 'rare' THEN 4
+                         WHEN 'epic' THEN 7
+                         WHEN 'legendary' THEN 12
+                         ELSE 1
+                       END AS technique_spd
+              FROM characters c
+              JOIN realms r ON r.id = c.realm_id
+              LEFT JOIN techniques t ON t.id = c.active_technique
+              LEFT JOIN equipment_stats es ON es.character_id = c.id
+            ), effective_stats AS (
+              SELECT *,
+                     GREATEST(0, ROUND(technique_hp + equipment_hp)) AS total_hp_bonus,
+                     atk + technique_atk + equipment_atk AS effective_atk,
+                     def + technique_def + equipment_def AS effective_def,
+                     spd + technique_spd + equipment_spd AS effective_spd
+              FROM base_stats
+            ), ranked AS (
+              SELECT id, character_name, realm,
+                     GREATEST(1, ROUND(
+                       LEAST(
+                         GREATEST(1, hp_max) + total_hp_bonus,
+                         GREATEST(0, hp) + total_hp_bonus
+                       ) * 0.18
+                       + effective_atk * 5
+                       + effective_def * 4
+                       + effective_spd * 2
+                     ))::bigint AS score,
+                     ROW_NUMBER() OVER (
+                       ORDER BY GREATEST(1, ROUND(
+                         LEAST(
+                           GREATEST(1, hp_max) + total_hp_bonus,
+                           GREATEST(0, hp) + total_hp_bonus
+                         ) * 0.18
+                         + effective_atk * 5
+                         + effective_def * 4
+                         + effective_spd * 2
+                       )) DESC,
+                       order_index DESC, current_qi DESC, id ASC
+                     ) AS rank
+              FROM effective_stats
+            )
+            SELECT id, character_name, realm, score, rank
+            FROM ranked
+            WHERE rank <= $1 OR id = $2
+            ORDER BY rank`;
+
+      const rankedRows = (await client.query(rankedSql, [limit, character.id])).rows;
+      const leaderboard = rankedRows.filter((row) => Number(row.rank) <= limit);
+      const myRank = Number(rankedRows.find((row) => row.id === character.id)?.rank || 0);
+      return { type, leaderboard, my_rank: myRank };
+    });
+    return res.json(result);
+  } catch (error) { return next(error); }
+}
+
 module.exports = {
   getGameState, getInventory, getRecipes, getTechniques, getEquipment, getBattleHistory, getExplorationHistory,
   startRetreat, endRetreat, explore, chooseEvent, startCraft, collectCraft, startForging, collectForging, useItem, equipTechnique,
   protectItem, recycleItem, equipWeapon, unequipWeapon, protectEquipment, recycleEquipment,
-  fightEnemy, avoidEncounter, rest, getAnnouncements,
+  fightEnemy, avoidEncounter, rest, getAnnouncements, getTitles, setTitle, dailyCheckin, getAchievements, getLeaderboard,
 };
