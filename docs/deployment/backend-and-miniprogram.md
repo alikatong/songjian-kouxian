@@ -9,8 +9,9 @@
 ## 后端服务器
 
 1. 将仓库部署到服务器，复制 `backend/.env.example` 为 `backend/.env`。
-2. 设置数据库连接、两个至少 64 位的 JWT 密钥、`WECHAT_APP_ID`、`WECHAT_APP_SECRET`，
-   并设置 `NODE_ENV=production`。小程序 AppID 必须与后端配置一致。
+2. 设置数据库连接、两个至少 64 位的 JWT 密钥和 `NODE_ENV=production`。
+   如启用实验性的微信手机号登录，在后端环境变量中配置 `WECHAT_APP_ID` 和 `WECHAT_APP_SECRET`，
+   并确认后端 AppID 与小程序私有配置一致。
 3. 启动独立后端：
 
 ```bash
@@ -23,17 +24,16 @@ docker compose -f docker-compose.backend.yml up -d --build
 
 ## 微信小程序
 
-1. 用微信开发者工具导入 `miniprogram/`。
-2. 在 `miniprogram/project.config.json` 中替换真实 `appid`。
+1. 在已被 Git 忽略的 `miniprogram/project.private.config.json` 顶层设置目标小程序的 `appid`。
+2. 用微信开发者工具导入 `miniprogram/`，并确认工具显示的 AppID 与私有配置一致。
 3. 在 `miniprogram/config/env.js` 中将 `API_BASE_URL` 改为公网 HTTPS API 地址。
 4. 在微信公众平台的“开发管理 -> 开发设置 -> 服务器域名”中，把相同域名加入
    `request` 合法域名。正式小程序不能使用 IP、HTTP 或带非标准端口的开发地址。
 5. 在开发者工具中完成预览、真机调试和上传。
 
-小程序使用微信登录和手机号快速验证组件。用户点击授权后，后端验证微信登录凭证与手机号凭证，
-按手机号自动登录或创建账号，再签发项目 JWT。微信要求用户主动授权手机号，不能无感读取；该能力
-还受小程序主体类型、认证状态和微信平台规则限制。
+小程序当前使用道号和口令登录。后端保留实验性的微信手机号登录接口，须由用户主动授权，
+并满足微信对小程序主体类型和认证状态的要求。
 
 小程序请求不使用浏览器 CORS；`CLIENT_ORIGIN` 只影响保留的 Web 客户端。JWT 存储在小程序本地
-存储中，服务端返回 401 时会自动清理并回到登录页。`WECHAT_APP_SECRET` 只能保存在后端环境变量，
-严禁写入小程序代码或提交到版本库。
+存储中，服务端返回 401 时会自动清理并回到登录页。AppID 是小程序标识，`WECHAT_APP_SECRET`
+是调用微信服务端接口的密钥，只能保存在后端环境变量中。
