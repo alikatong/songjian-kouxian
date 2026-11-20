@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  ascensionMultiplierForRarity,
   combatStats,
   combatPower,
   effectiveHp,
@@ -33,7 +32,7 @@ test('major breakthroughs are harder and more punishing', () => {
   const major = breakthroughProfile({ orderIndex: 20, isMajorBreakthrough: true });
   assert.ok(major.baseChance < minor.baseChance);
   assert.ok(major.lossMin > minor.lossMin);
-  assert.equal(breakthroughLoss({ orderIndex: 48, isMajorBreakthrough: true, random: 1 }), 0.99);
+  assert.ok(breakthroughLoss({ orderIndex: 48, isMajorBreakthrough: true, random: 1 }) < 0.41);
 });
 
 test('retreat is exclusive compensation at 1.75 times normal gain', () => {
@@ -46,24 +45,15 @@ test('encounter chance rises after safe explorations and reaches guaranteed pity
   assert.equal(encounterChance({ baseRate: 0.2, misses: 4, pityAfter: 5 }), 1);
 });
 
-test('combat stats scale deterministically with realm order', () => {
-  assert.deepEqual(combatStats(4), { hp: 340, atk: 46, def: 21, spd: 18 });
-});
-
-test('major ascension multiplier follows active technique rarity', () => {
-  assert.equal(ascensionMultiplierForRarity('common'), 3);
-  assert.equal(ascensionMultiplierForRarity('uncommon'), 3.05);
-  assert.equal(ascensionMultiplierForRarity('rare'), 3.1);
-  assert.equal(ascensionMultiplierForRarity('epic'), 3.15);
-  assert.equal(ascensionMultiplierForRarity('legendary'), 3.2);
-  assert.equal(ascensionMultiplierForRarity('unknown'), 3);
-});
-
-test('major ascension multiplier compounds into all base combat stats', () => {
-  const firstAscension = combatStats(1, 3.2);
-  const secondAscension = combatStats(5, 3.2 * 3.15);
-  assert.deepEqual(firstAscension, { hp: 512, atk: 61, def: 29, spd: 38 });
-  assert.deepEqual(secondAscension, { hp: 4032, atk: 554, def: 252, spd: 202 });
+test('all 49 realms improve base stats without an abrupt jump at ascension', () => {
+  assert.deepEqual(combatStats(0), { hp: 100, atk: 14, def: 8, spd: 12 });
+  for (let order = 1; order < 49; order += 1) {
+    const previous = combatStats(order - 1);
+    for (const [stat, value] of Object.entries(combatStats(order))) {
+      assert.ok(value > previous[stat] && value / previous[stat] <= 1.25, `${order}: ${stat}`);
+    }
+  }
+  assert.ok(combatStats(48).hp < 4000);
 });
 
 test('all four combat stats contribute to combat power', () => {
@@ -91,4 +81,22 @@ test('battle resolution is deterministic with a supplied random source', () => {
   assert.ok(battle.rounds > 0);
   assert.ok(battle.player_hp > 0);
   assert.ok(battle.log.length > 0);
+});
+
+test('boots guarantee the opening dodge and a fan uses it for exactly one counter', () => {
+  const player = { hp: 200, atk: 24, def: 8, spd: 5, traits: ['fan', 'boots', '炼体'] };
+  const enemy = { name: '木傀', hp: 125, atk: 12, def: 6, spd: 10 };
+  const battle = resolveBattle(player, enemy, () => 0.5);
+  assert.match(battle.log[0], /踏虚/);
+  assert.match(battle.log[1], /回风/);
+  assert.equal(battle.log.filter(line => line.includes('回风')).length, 1);
+  assert.ok(battle.log.some(line => line.includes('崩劲')));
+});
+
+test('a spear takes initiative against a faster foe only on the opening round', () => {
+  const player = { hp: 200, atk: 24, def: 8, spd: 5, traits: ['spear'] };
+  const enemy = { name: '木傀', hp: 125, atk: 12, def: 6, spd: 10 };
+  const battle = resolveBattle(player, enemy, () => 0.5);
+  assert.match(battle.log[0], /^你.*抢势/);
+  assert.match(battle.log[2], /^木傀/);
 });

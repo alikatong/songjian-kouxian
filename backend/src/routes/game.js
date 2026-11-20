@@ -20,6 +20,7 @@ router.post('/checkin', asyncHandler(controller.dailyCheckin));
 router.post('/retreat/start', asyncHandler(controller.startRetreat));
 router.post('/retreat/end', asyncHandler(controller.endRetreat));
 router.post('/explore', asyncHandler(controller.explore));
+router.post('/pve/challenge', asyncHandler(controller.challengeBoss));
 router.post('/pve/fight', asyncHandler(controller.fightEnemy));
 router.post('/pve/rest', asyncHandler(controller.rest));
 router.post('/pve/avoid', asyncHandler(controller.avoidEncounter));

@@ -8,7 +8,6 @@ const {
 } = require('../services/gameService');
 const {
   combatStats,
-  ascensionMultiplierForRarity,
   breakthroughProfile,
   breakthroughChance,
   breakthroughLoss,
@@ -58,6 +57,7 @@ async function createCharacter(req, res, next) {
       const atkBonus = Number(bonuses.atk || 0);
       const defBonus = Number(bonuses.def || 0);
       const spdBonus = Number(bonuses.spd || 0);
+      const stats = combatStats(0);
       const inserted = await client.query(
         `INSERT INTO characters
            (user_id, name, realm_id, qi_per_second, active_technique, active_title,
@@ -65,7 +65,8 @@ async function createCharacter(req, res, next) {
          VALUES ($1, $2, $3, $4, $5, '肉体凡胎', $6, $7,
                  $8, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
         [req.user.userId, req.body.name, realm.id, realm.qi_base_per_sec, technique?.id || null,
-          origin.id, req.body.gender, 100 + hpBonus, 10 + atkBonus, 5 + defBonus, 10 + spdBonus,
+          origin.id, req.body.gender, stats.hp + hpBonus, stats.atk + atkBonus,
+          stats.def + defBonus, stats.spd + spdBonus,
           hpBonus, atkBonus, defBonus, spdBonus, Number(bonuses.fate_points || 0)],
       );
       const id = inserted.rows[0].id;
@@ -121,6 +122,9 @@ async function breakthrough(req, res, next) {
       if (character.retreat_started_at) {
         const error = new Error('闭关期间不能破境，请先出关'); error.status = 409; throw error;
       }
+      if (!character.next_major_realm) {
+        const error = new Error('已达当前版本最高境界'); error.status = 409; throw error;
+      }
       await settleOffline(client, character);
       if (BigInt(character.current_qi) < BigInt(character.qi_required)) {
         const error = new Error('灵气不足，无法突破'); error.status = 400; throw error;
@@ -149,6 +153,7 @@ async function breakthrough(req, res, next) {
       let itemBonus = 0;
       let protectedFailure = false;
       const consumedItems = [];
+      let majorPill = null;
       const consumeBreakthroughItem = async (itemCode, expectedType) => {
         if (typeof itemCode !== 'string' || !itemCode) return;
         const item = (await client.query(
@@ -164,20 +169,25 @@ async function breakthrough(req, res, next) {
             : '所选突破丹食不可用于当前境界');
           error.status = 400; throw error;
         }
+        if (expectedType === 'major_breakthrough') {
+          majorPill = item;
+          itemBonus += Number(item.effect.breakthrough_rate || 0);
+          return;
+        }
         const deducted = await client.query(
           'UPDATE inventories SET quantity = quantity - 1 WHERE character_id = $1 AND item_id = $2 AND quantity > 0',
           [character.id, item.id],
         );
         if (!deducted.rowCount) throw new Error('突破道具扣除失败');
-        if (['breakthrough', 'major_breakthrough'].includes(expectedType)) itemBonus += Number(item.effect.breakthrough_rate || 0);
+        if (expectedType === 'breakthrough') itemBonus += Number(item.effect.breakthrough_rate || 0);
         if (expectedType === 'breakthrough_protection') protectedFailure = Boolean(item.effect.protection);
         consumedItems.push(item.code);
       };
       await consumeBreakthroughItem(req.body.boost_item_code || req.body.item_code, 'breakthrough');
-      if (isMajorBreakthrough && typeof req.body.major_pill_code !== 'string') {
+      if (isMajorBreakthrough && (typeof req.body.major_pill_code !== 'string' || !req.body.major_pill_code.trim())) {
         const error = new Error('大境界突破必须服用对应守关破境丹'); error.status = 400; throw error;
       }
-      await consumeBreakthroughItem(req.body.major_pill_code, 'major_breakthrough');
+      if (isMajorBreakthrough) await consumeBreakthroughItem(req.body.major_pill_code, 'major_breakthrough');
       await consumeBreakthroughItem(req.body.protection_item_code, 'breakthrough_protection');
       let techniqueBonus = 0;
       if (character.active_technique) {
@@ -197,29 +207,31 @@ async function breakthrough(req, res, next) {
       let lossPercent = 0;
       let demoted = false;
       if (success) {
-        const ascensionMultiplier = isMajorBreakthrough
-          ? ascensionMultiplierForRarity(character.technique_rarity)
-          : 1;
-        const nextMajorStatMultiplier = Number(character.major_stat_multiplier || 1) * ascensionMultiplier;
-        const stats = combatStats(nextRealm.order_index, nextMajorStatMultiplier);
+        // 首领药引只在成功时消耗，失败后仍需补回灵气，因此无需重复刷守关首领。
+        if (majorPill) {
+          await client.query('UPDATE inventories SET quantity = quantity - 1 WHERE character_id = $1 AND item_id = $2',
+            [character.id, majorPill.id]);
+          consumedItems.push(majorPill.code);
+        }
+        const stats = combatStats(nextRealm.order_index);
         await client.query(
           `UPDATE characters SET realm_id = $1, current_qi = 0,
              qi_per_second = $2, hp = $3, hp_max = $3, atk = $4, def = $5, spd = $6,
-             major_stat_multiplier = $7, breakthrough_failures = 0, last_online_at = NOW()
-           WHERE id = $8`,
+             breakthrough_failures = 0, last_online_at = NOW()
+           WHERE id = $7`,
           [nextRealm.id, nextRealm.qi_base_per_sec,
             stats.hp + Number(character.bonus_hp || 0),
             stats.atk + Number(character.bonus_atk || 0),
              stats.def + Number(character.bonus_def || 0),
-             stats.spd + Number(character.bonus_spd || 0), nextMajorStatMultiplier, character.id],
+             stats.spd + Number(character.bonus_spd || 0), character.id],
         );
         if (isMajorBreakthrough) {
           await client.query(
             `INSERT INTO character_ascensions
              (character_id, from_realm_id, to_realm_id, technique_id, technique_rarity, multiplier)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
+             VALUES ($1, $2, $3, $4, $5, 1)`,
             [character.id, character.realm_id, nextRealm.id, character.active_technique,
-              character.technique_rarity || 'common', ascensionMultiplier],
+              character.technique_rarity || 'common'],
           );
         }
         if (nextRealm.title_unlock) {
@@ -257,7 +269,7 @@ async function breakthrough(req, res, next) {
         const retainedQi = protectedFailure
           ? character.current_qi
           : Math.floor(Number(failureRealm.qi_required) * (1 - lossPercent));
-        const failureStats = combatStats(failureRealm.order_index, character.major_stat_multiplier);
+        const failureStats = combatStats(failureRealm.order_index);
         await client.query(
           `UPDATE characters SET realm_id = $1, current_qi = $2, qi_per_second = $3,
              hp = $4, hp_max = $4, atk = $5, def = $6, spd = $7,
@@ -281,8 +293,8 @@ async function breakthrough(req, res, next) {
         message: success
           ? `破境成功，已踏入${updated.major_realm}${updated.sub_stage || ''}`
           : protectedFailure
-            ? '破境失败，护脉丹稳住了气机：灵气与境界均未受损。'
-            : `破境失败，损失 ${Math.round(lossPercent * 100)}% 灵气${demoted ? `，境界跌至${updated.major_realm}${updated.sub_stage || ''}` : ''}。`,
+            ? `破境失败，护脉丹保住了灵气与境界。${majorPill ? '守关破境丹已保留。' : ''}`
+            : `破境失败，损失 ${Math.round(lossPercent * 100)}% 灵气${demoted ? `，境界跌至${updated.major_realm}${updated.sub_stage || ''}` : ''}。${majorPill ? '守关破境丹已保留。' : ''}`,
         character: serializeCharacter(updated),
       };
     });

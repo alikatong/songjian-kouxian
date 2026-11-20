@@ -45,7 +45,7 @@ Page({
     return {
       ...encounter,
       rankName: rankNames[encounter.rank] || encounter.rank,
-      forecastName: forecastNames[encounter.forecast] || '难以判断',
+      forecastName: forecastNames[encounter.forecast] || encounter.forecast || '难以判断',
       art: assetUrl(encounter.image_url),
       rewardText: `灵气 ${formatNumber(encounter.qi_reward)} · 灵石 ${formatNumber(encounter.stone_reward)}`,
       requirementText: (encounter.missing_requirements || []).join('、')
@@ -111,7 +111,7 @@ Page({
   async fight() {
     await this.run(async () => {
       const response = await api.game.fight(this.data.encounter.code)
-      const loot = response.loot?.items || []
+      const loot = Array.isArray(response.loot) ? response.loot : response.loot?.items || []
       const rewards = [`灵气 ${formatNumber(response.qi_reward)}`, `灵石 ${formatNumber(response.stone_reward)}`, ...loot.map((item) => `${item.name} ×${item.quantity || 1}`)]
       this.setData({
         result: { title: response.result === 'win' ? '此战告捷' : '败退', message: response.message, rewards: rewards.join(' · ') },
@@ -119,6 +119,14 @@ Page({
       })
       await this.load()
       return response.message
+    })
+  },
+
+  async challengeBoss() {
+    if (!this.data.selectedArea) return
+    await this.run(async () => {
+      const response = await api.game.challengeBoss(this.data.selectedArea)
+      this.setData({ encounter: this.mapEncounter(response.pending_encounter), result: null })
     })
   },
 

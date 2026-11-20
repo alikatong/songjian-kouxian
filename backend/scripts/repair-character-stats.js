@@ -11,12 +11,11 @@ function option(name) {
 
 async function repairCharacter() {
   const username = option('--username');
-  const multiplier = Number(option('--multiplier'));
   const apply = process.argv.includes('--apply');
-  const reason = option('--reason') || 'Correct legacy ascension multiplier inferred from an impossible future technique';
+  const reason = option('--reason') || '按当前境界重算基础属性并保留伤势比例';
 
-  if (!username || !Number.isFinite(multiplier) || multiplier < 1) {
-    throw new Error('Usage: node scripts/repair-character-stats.js --username <name> --multiplier <value> [--apply]');
+  if (!username || process.argv.includes('--multiplier')) {
+    throw new Error('用法：node scripts/repair-character-stats.js --username <用户名> [--apply] [--reason <原因>]');
   }
 
   const client = await pool.connect();
@@ -32,9 +31,9 @@ async function repairCharacter() {
     const character = result.rows[0];
     if (!character) throw new Error('Character not found');
 
-    const base = combatStats(character.order_index, multiplier);
+    const base = combatStats(character.order_index);
     const next = {
-      major_stat_multiplier: multiplier,
+      major_stat_multiplier: 1,
       hp_max: base.hp + Number(character.bonus_hp || 0),
       atk: base.atk + Number(character.bonus_atk || 0),
       def: base.def + Number(character.bonus_def || 0),

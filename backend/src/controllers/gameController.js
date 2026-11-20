@@ -1,7 +1,7 @@
 const { withTransaction, query } = require('../config/db');
 const { playerPaging, pagedResult } = require('../utils/playerPagination');
 const {
-  baseHpAfterBattle, combatPower, resolveBattle, scaleTechniqueStats, encounterChance,
+  baseHpAfterBattle, battleTraits, combatPower, resolveBattle, encounterChance,
 } = require('../utils/gameMath');
 const {
   getCharacterRow,
@@ -33,7 +33,6 @@ function exploreCooldownRemaining(lastExploredAt) {
 }
 
 const rarityOrder = "CASE i.rarity WHEN 'legendary' THEN 0 WHEN 'epic' THEN 1 WHEN 'rare' THEN 2 WHEN 'uncommon' THEN 3 ELSE 4 END";
-const rarityRank = { common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4 };
 const bossPillByArea = {
   luoxia: 'major_pill_mortal', qingyun_foothill: 'major_pill_lianpi', blackstone_forest: 'major_pill_lianggu',
   mist_forest: 'major_pill_yijin', clear_spring_cliff: 'major_pill_xisui', red_maple_valley: 'major_pill_huanxue',
@@ -233,7 +232,7 @@ async function codexState(client, character, includeCollections = true) {
     retreat_multiplier: Number(technique.retreat_multiplier),
     breakthrough_bonus: Number(technique.breakthrough_bonus),
     event_bonus: Number(technique.event_bonus),
-    stat_bonuses: scaleTechniqueStats(technique.stat_bonuses, technique.rarity),
+    stat_bonuses: technique.stat_bonuses || {},
   })) : [];
   const areas = (await client.query(
     `SELECT a.*, COALESCE(cep.misses, 0)::int AS encounter_misses,
@@ -429,26 +428,18 @@ async function pveState(client, character) {
   const stats = serializeCharacter(character).stats;
   const playerPower = combatPower(stats);
   const pendingEncounter = character.pending_enemy_code ? (await client.query(
-    `SELECT e.*, a.name AS area_name, a.min_realm_order,
+    `SELECT e.*, a.name AS area_name, a.max_realm_order, r.major_realm || r.sub_stage AS challenge_realm,
             EXISTS (SELECT 1 FROM battle_logs bl WHERE bl.character_id = $1
                     AND bl.enemy_code = e.code AND bl.result = 'win') AS defeated
-     FROM enemies e JOIN areas a ON a.code = e.area_code
+     FROM enemies e JOIN areas a ON a.code = e.area_code JOIN realms r ON r.order_index = a.max_realm_order
      WHERE e.code = $2`,
     [character.id, character.pending_enemy_code],
   )).rows[0] : null;
   const encounter = pendingEncounter ? (() => {
     const enemy = pendingEncounter;
     const enemyPower = combatPower(enemy);
-    const bossRequirements = enemy.rank === 'boss' ? {
-      technique: rarityRank[character.technique_rarity] >= rarityRank.epic,
-      weapon: rarityRank[character.attack_weapon_rarity] >= rarityRank.epic
-        && character.attack_weapon_major_realm === character.major_realm,
-      armor: rarityRank[character.defense_weapon_rarity] >= rarityRank.epic
-        && character.defense_weapon_major_realm === character.major_realm,
-    } : null;
-    const missingRequirements = bossRequirements ? Object.entries(bossRequirements)
-      .filter(([, ready]) => !ready)
-      .map(([key]) => ({ technique: '本境界珍品以上功法', weapon: '本境界珍品以上武器', armor: '本境界珍品以上护器' })[key]) : [];
+    const missingRequirements = enemy.rank === 'boss' && character.order_index < enemy.max_realm_order
+      ? [`达到${enemy.challenge_realm}`] : [];
     return {
       code: enemy.code,
       name: enemy.name,
@@ -463,7 +454,6 @@ async function pveState(client, character) {
       enemy_power: enemyPower, player_power: playerPower,
       power_ratio: Number((playerPower / enemyPower).toFixed(2)),
       forecast: missingRequirements.length ? '尚未具备资格' : playerPower >= enemyPower * 1.25 ? '优势' : playerPower >= enemyPower * 0.9 ? '势均力敌' : '凶险',
-      boss_requirements: bossRequirements,
       missing_requirements: missingRequirements,
       can_challenge: missingRequirements.length === 0,
     };
@@ -662,7 +652,7 @@ async function getTechniques(req, res, next) {
           `SELECT COUNT(*)::int AS total
            FROM techniques t
            LEFT JOIN character_techniques ct ON ct.technique_id = t.id AND ct.character_id = $1
-           WHERE (t.major_realm = $2 OR ct.id IS NOT NULL)
+           WHERE ((t.featured AND t.major_realm = $2) OR ct.id IS NOT NULL)
              AND ($3::text IS NULL OR t.rarity = $3)
              AND ($4::text IS NULL OR CONCAT_WS(' ', t.code, t.name, t.category, t.description, t.source_description, t.major_realm)
                   ILIKE '%' || $4 || '%')
@@ -672,7 +662,7 @@ async function getTechniques(req, res, next) {
           params,
         ),
         client.query(
-          `SELECT t.code, t.name, t.rarity, t.category, t.description, t.qi_multiplier,
+          `SELECT t.code, t.name, t.rarity, t.category, t.description, t.qi_multiplier, t.featured,
                   t.retreat_multiplier, t.breakthrough_bonus, t.event_bonus,
                   t.stat_bonuses, t.source_description, t.major_realm,
                   (ct.id IS NOT NULL) AS owned,
@@ -680,14 +670,14 @@ async function getTechniques(req, res, next) {
            FROM techniques t
            LEFT JOIN character_techniques ct ON ct.technique_id = t.id AND ct.character_id = $1
            JOIN characters c ON c.id = $1
-           WHERE (t.major_realm = $2 OR ct.id IS NOT NULL)
+           WHERE ((t.featured AND t.major_realm = $2) OR ct.id IS NOT NULL)
              AND ($3::text IS NULL OR t.rarity = $3)
              AND ($4::text IS NULL OR CONCAT_WS(' ', t.code, t.name, t.category, t.description, t.source_description, t.major_realm)
                   ILIKE '%' || $4 || '%')
              AND ($5::text IS NULL
                   OR ($5 = 'owned' AND ct.id IS NOT NULL)
                   OR ($5 = 'unowned' AND ct.id IS NULL))
-           ORDER BY (t.major_realm = $2) DESC,
+           ORDER BY t.featured DESC, (t.major_realm = $2) DESC,
                     CASE t.rarity WHEN 'legendary' THEN 0 WHEN 'epic' THEN 1 WHEN 'rare' THEN 2 WHEN 'uncommon' THEN 3 ELSE 4 END,
                     (ct.id IS NOT NULL) DESC, t.name, t.id
            LIMIT $6 OFFSET $7`,
@@ -700,7 +690,8 @@ async function getTechniques(req, res, next) {
         retreat_multiplier: Number(technique.retreat_multiplier),
         breakthrough_bonus: Number(technique.breakthrough_bonus),
         event_bonus: Number(technique.event_bonus),
-        stat_bonuses: scaleTechniqueStats(technique.stat_bonuses, technique.rarity),
+        stat_bonuses: technique.stat_bonuses || {},
+        battle_trait: battleTraits[technique.category] || null,
       }));
       return pagedResult(items, countResult.rows[0]?.total, paging.page);
     });
@@ -728,7 +719,7 @@ async function getEquipment(req, res, next) {
            FROM equipment e
            LEFT JOIN character_equipment ce ON ce.equipment_id = e.id AND ce.character_id = $1
            LEFT JOIN character_equipment_recipes cer ON cer.equipment_id = e.id AND cer.character_id = $1
-           WHERE (e.major_realm = $2 OR ce.id IS NOT NULL OR cer.id IS NOT NULL)
+           WHERE ((e.featured AND e.major_realm = $2) OR COALESCE(ce.quantity, 0) > 0 OR cer.id IS NOT NULL)
              AND ($3::text IS NULL OR e.rarity = $3)
              AND ($4::text IS NULL OR CONCAT_WS(' ', e.code, e.name, e.weapon_type, e.combat_role, e.description, e.source_description, e.major_realm)
                   ILIKE '%' || $4 || '%')
@@ -736,7 +727,7 @@ async function getEquipment(req, res, next) {
                   OR ($5 IN ('attack', 'defense') AND e.combat_role = $5)
                   OR ($5 = 'owned' AND COALESCE(ce.quantity, 0) > 0)
                   OR ($5 = 'unowned' AND COALESCE(ce.quantity, 0) < 1)
-                  OR ($5 = 'recipe_unlocked' AND cer.id IS NOT NULL)
+                  OR ($5 = 'recipe_unlocked' AND (cer.id IS NOT NULL OR (e.featured AND e.rarity <> 'legendary' AND e.major_realm = $2)))
                   OR ($5 = 'equipped' AND ce.equipped_slot IS NOT NULL))`,
           countParams,
         ),
@@ -744,7 +735,8 @@ async function getEquipment(req, res, next) {
           `SELECT e.code, e.name, e.weapon_type, e.combat_role, e.rarity, e.major_realm, e.required_order,
                   e.attack_bonus, e.defense_bonus, e.hp_bonus, e.speed_bonus,
                   e.description, e.source_description, e.image_url, e.recipe, e.craft_time_s,
-                  e.recipe_source_description, (cer.id IS NOT NULL) AS recipe_unlocked,
+                  e.recipe_source_description, e.featured,
+                  (cer.id IS NOT NULL OR (e.featured AND e.rarity <> 'legendary' AND e.major_realm = $3)) AS recipe_unlocked,
                   COALESCE(ce.quantity, 0)::int AS quantity,
                   (ce.equipped_slot IS NOT NULL) AS equipped,
                   ce.equipped_slot,
@@ -753,7 +745,7 @@ async function getEquipment(req, res, next) {
            FROM equipment e
            LEFT JOIN character_equipment ce ON ce.equipment_id = e.id AND ce.character_id = $1
            LEFT JOIN character_equipment_recipes cer ON cer.equipment_id = e.id AND cer.character_id = $1
-           WHERE (e.major_realm = $3 OR ce.id IS NOT NULL OR cer.id IS NOT NULL)
+           WHERE ((e.featured AND e.major_realm = $3) OR COALESCE(ce.quantity, 0) > 0 OR cer.id IS NOT NULL)
              AND ($4::text IS NULL OR e.rarity = $4)
              AND ($5::text IS NULL OR CONCAT_WS(' ', e.code, e.name, e.weapon_type, e.combat_role, e.description, e.source_description, e.major_realm)
                   ILIKE '%' || $5 || '%')
@@ -761,17 +753,18 @@ async function getEquipment(req, res, next) {
                   OR ($6 IN ('attack', 'defense') AND e.combat_role = $6)
                   OR ($6 = 'owned' AND COALESCE(ce.quantity, 0) > 0)
                   OR ($6 = 'unowned' AND COALESCE(ce.quantity, 0) < 1)
-                  OR ($6 = 'recipe_unlocked' AND cer.id IS NOT NULL)
+                  OR ($6 = 'recipe_unlocked' AND (cer.id IS NOT NULL OR (e.featured AND e.rarity <> 'legendary' AND e.major_realm = $3)))
                   OR ($6 = 'equipped' AND ce.equipped_slot IS NOT NULL))
-           ORDER BY (e.major_realm = $3) DESC,
-                    CASE e.rarity WHEN 'legendary' THEN 0 WHEN 'epic' THEN 1 WHEN 'rare' THEN 2 WHEN 'uncommon' THEN 3 ELSE 4 END,
-                    (ce.id IS NOT NULL) DESC, e.combat_role, e.weapon_type, e.name, e.id
+           ORDER BY (e.featured AND e.major_realm = $3) DESC, (e.rarity = 'legendary'),
+                    (ce.quantity > 0) DESC NULLS LAST, e.weapon_type, e.name, e.id
            LIMIT $7 OFFSET $8`,
           [...params, paging.limit, paging.offset],
         ),
       ]);
       const materials = await ingredientDetails(client, character.id, rowsResult.rows);
-      const items = rowsResult.rows.map((item) => withIngredients(item, materials, '未知炼材'));
+      const items = rowsResult.rows.map((item) => ({
+        ...withIngredients(item, materials, '未知炼材'), battle_trait: battleTraits[item.weapon_type] || null,
+      }));
       return pagedResult(items, countResult.rows[0]?.total, paging.page);
     });
     return res.json(result);
@@ -857,6 +850,28 @@ async function getExplorationHistory(req, res, next) {
   }
 }
 
+async function challengeBoss(req, res, next) {
+  if (typeof req.body.area !== 'string') return res.status(400).json({ error: '请选择挑战区域' });
+  try {
+    const result = await withTransaction(async (client) => {
+      const character = await getCharacterRow(client, req.user.userId, true);
+      if (!character) { const error = new Error('角色不存在'); error.status = 404; throw error; }
+      if (character.retreat_started_at || character.pending_event_id || character.pending_enemy_code) {
+        const error = new Error('请先出关并处理当前奇遇或遭遇'); error.status = 409; throw error;
+      }
+      const boss = (await client.query(
+        `SELECT e.code FROM enemies e JOIN areas a ON a.code = e.area_code
+         WHERE a.code = $1 AND e.rank = 'boss' AND a.max_realm_order <= $2`,
+        [req.body.area, character.order_index],
+      )).rows[0];
+      if (!boss) { const error = new Error('达到此地的圆满境界后才能挑战首领'); error.status = 403; throw error; }
+      await client.query('UPDATE characters SET pending_enemy_code = $1 WHERE id = $2', [boss.code, character.id]);
+      return pveState(client, { ...character, pending_enemy_code: boss.code });
+    });
+    return res.json(result);
+  } catch (error) { return next(error); }
+}
+
 async function fightEnemy(req, res, next) {
   if (typeof req.body.enemy_code !== 'string') return res.status(400).json({ error: '请选择对手' });
   try {
@@ -869,22 +884,11 @@ async function fightEnemy(req, res, next) {
         const error = new Error('当前没有遭遇这个敌人'); error.status = 409; throw error;
       }
       const enemy = (await client.query(
-        `SELECT e.*, a.min_realm_order FROM enemies e JOIN areas a ON a.code = e.area_code
-         WHERE e.code = $1 AND a.min_realm_order <= $2`,
+        `SELECT e.* FROM enemies e JOIN areas a ON a.code = e.area_code
+         WHERE e.code = $1 AND CASE WHEN e.rank = 'boss' THEN a.max_realm_order ELSE a.min_realm_order END <= $2`,
         [req.body.enemy_code, character.order_index],
       )).rows[0];
       if (!enemy) { const error = new Error('当前境界无法挑战该敌人'); error.status = 403; throw error; }
-      if (enemy.rank === 'boss') {
-        const missing = [];
-        if (rarityRank[character.technique_rarity] < rarityRank.epic) missing.push('本境界珍品以上功法');
-        if (rarityRank[character.attack_weapon_rarity] < rarityRank.epic
-          || character.attack_weapon_major_realm !== character.major_realm) missing.push('本境界珍品以上武器');
-        if (rarityRank[character.defense_weapon_rarity] < rarityRank.epic
-          || character.defense_weapon_major_realm !== character.major_realm) missing.push('本境界珍品以上护器');
-        if (missing.length) {
-          const error = new Error(`首领威压难以承受，还需：${missing.join('、')}`); error.status = 403; throw error;
-        }
-      }
       const staminaCost = { normal: 8, elite: 16, boss: 28 }[enemy.rank] || 8;
       if (Number(character.stamina) < staminaCost) {
         const error = new Error(`精力不足，挑战${enemy.name}需要${staminaCost}点精力`); error.status = 409; throw error;
@@ -893,10 +897,7 @@ async function fightEnemy(req, res, next) {
       if (Number(player.hp) <= 0) { const error = new Error('气血枯竭，请先服丹或调息'); error.status = 409; throw error; }
       const battle = resolveBattle(player, enemy);
       const remainingHp = battle.result === 'win' ? Math.max(1, battle.player_hp) : 1;
-      const techniqueHp = Number(scaleTechniqueStats(
-        character.technique_stat_bonuses,
-        character.technique_rarity,
-      ).hp || 0);
+      const techniqueHp = Number(character.technique_stat_bonuses?.hp || 0);
       const bonusHp = techniqueHp + Number(character.attack_weapon_hp || 0) + Number(character.defense_weapon_hp || 0);
       const storedHp = baseHpAfterBattle(remainingHp, character.hp_max, bonusHp);
       await client.query(
@@ -951,7 +952,7 @@ async function fightEnemy(req, res, next) {
         [character.id, enemy.code, battle.result, battle.rounds, JSON.stringify({ items: loot, qi: qiReward, spirit_stones: stoneReward, log: battle.log })],
       );
       return {
-        ...battle, loot, qi_reward: qiReward, stone_reward: stoneReward, stamina_cost: staminaCost,
+        ...battle, enemy_name: enemy.name, loot, qi_reward: qiReward, stone_reward: stoneReward, stamina_cost: staminaCost,
         message: battle.result === 'win'
           ? `战胜${enemy.name}，获得${qiReward}灵气、${stoneReward}灵石${loot.length ? `及${loot[0].name}` : ''}`
           : `败于${enemy.name}，气血降至1点，请疗伤后再战`,
@@ -1176,10 +1177,7 @@ async function chooseEvent(req, res, next) {
       const encounterRate = encounterChance({ baseRate: encounterBaseRate, misses: encounterMisses, pityAfter: encounterPityAfter });
       if (Math.random() < encounterRate) {
         const rankRoll = Math.random();
-        const fullStage = character.sub_stage === '圆满';
-        const rank = fullStage
-          ? rankRoll < 0.5 ? 'normal' : rankRoll < 0.8 ? 'elite' : 'boss'
-          : rankRoll < 0.72 ? 'normal' : rankRoll < 0.96 ? 'elite' : 'boss';
+        const rank = rankRoll < (character.sub_stage === '圆满' ? 0.60 : 0.78) ? 'normal' : 'elite';
         encounter = (await client.query(
           'SELECT code, name, rank FROM enemies WHERE area_code = $1 AND rank = $2 LIMIT 1',
           [event.area_code, rank],
@@ -1310,9 +1308,10 @@ async function startForging(req, res, next) {
       if (activeCount >= 3) { const error = new Error('炼器炉位已满，请先领取成品'); error.status = 409; throw error; }
       const equipment = (await client.query(
         `SELECT e.* FROM equipment e
-         JOIN character_equipment_recipes cer ON cer.equipment_id = e.id
-         WHERE e.code = $1 AND e.recipe IS NOT NULL AND cer.character_id = $2`,
-        [req.body.equipment_code, character.id],
+         LEFT JOIN character_equipment_recipes cer ON cer.equipment_id = e.id AND cer.character_id = $2
+         WHERE e.code = $1 AND e.recipe IS NOT NULL
+           AND (cer.id IS NOT NULL OR (e.featured AND e.rarity <> 'legendary' AND e.required_order <= $3))`,
+        [req.body.equipment_code, character.id, character.order_index],
       )).rows[0];
       if (!equipment) { const error = new Error('尚未收录这张器谱，无法炼制'); error.status = 403; throw error; }
       if (character.order_index < equipment.required_order) {
@@ -1519,12 +1518,15 @@ async function equipTechnique(req, res, next) {
     const result = await withTransaction(async (client) => {
       const character = await getCharacterRow(client, req.user.userId, true);
       if (!character) { const error = new Error('角色不存在'); error.status = 404; throw error; }
+      if (character.retreat_started_at) { const error = new Error('请先出关结算，再切换主修功法'); error.status = 409; throw error; }
       const technique = (await client.query(
         `SELECT t.* FROM character_techniques ct JOIN techniques t ON t.id = ct.technique_id
          WHERE ct.character_id = $1 AND t.code = $2 AND t.required_order <= $3`,
         [character.id, req.body.technique_code, character.order_index],
       )).rows[0];
       if (!technique) { const error = new Error('尚未收录这本功法谱'); error.status = 403; throw error; }
+      // 已经过的修炼时间按原功法结算，切换只影响之后的收益。
+      await settleOffline(client, character);
       await client.query('UPDATE characters SET active_technique = $1 WHERE id = $2', [technique.id, character.id]);
       return { message: `已将《${technique.name}》设为当前功法` };
     });
@@ -1862,38 +1864,10 @@ async function getLeaderboard(req, res, next) {
                      COALESCE(es.equipment_def, 0) AS equipment_def,
                      COALESCE(es.equipment_hp, 0) AS equipment_hp,
                      COALESCE(es.equipment_spd, 0) AS equipment_spd,
-                     COALESCE(t.stat_bonuses ->> 'hp', '0')::numeric *
-                       CASE t.rarity
-                         WHEN 'uncommon' THEN 2
-                         WHEN 'rare' THEN 4
-                         WHEN 'epic' THEN 7
-                         WHEN 'legendary' THEN 12
-                         ELSE 1
-                       END AS technique_hp,
-                     COALESCE(t.stat_bonuses ->> 'atk', '0')::numeric *
-                       CASE t.rarity
-                         WHEN 'uncommon' THEN 2
-                         WHEN 'rare' THEN 4
-                         WHEN 'epic' THEN 7
-                         WHEN 'legendary' THEN 12
-                         ELSE 1
-                       END AS technique_atk,
-                     COALESCE(t.stat_bonuses ->> 'def', '0')::numeric *
-                       CASE t.rarity
-                         WHEN 'uncommon' THEN 2
-                         WHEN 'rare' THEN 4
-                         WHEN 'epic' THEN 7
-                         WHEN 'legendary' THEN 12
-                         ELSE 1
-                       END AS technique_def,
-                     COALESCE(t.stat_bonuses ->> 'spd', '0')::numeric *
-                       CASE t.rarity
-                         WHEN 'uncommon' THEN 2
-                         WHEN 'rare' THEN 4
-                         WHEN 'epic' THEN 7
-                         WHEN 'legendary' THEN 12
-                         ELSE 1
-                       END AS technique_spd
+                     COALESCE(t.stat_bonuses ->> 'hp', '0')::numeric AS technique_hp,
+                     COALESCE(t.stat_bonuses ->> 'atk', '0')::numeric AS technique_atk,
+                     COALESCE(t.stat_bonuses ->> 'def', '0')::numeric AS technique_def,
+                     COALESCE(t.stat_bonuses ->> 'spd', '0')::numeric AS technique_spd
               FROM characters c
               JOIN realms r ON r.id = c.realm_id
               LEFT JOIN techniques t ON t.id = c.active_technique
@@ -1948,5 +1922,5 @@ module.exports = {
   getGameState, getInventory, getRecipes, getTechniques, getEquipment, getBattleHistory, getExplorationHistory,
   startRetreat, endRetreat, explore, chooseEvent, startCraft, collectCraft, startForging, collectForging, useItem, equipTechnique,
   protectItem, recycleItem, equipWeapon, unequipWeapon, protectEquipment, recycleEquipment,
-  fightEnemy, avoidEncounter, rest, getAnnouncements, getTitles, setTitle, dailyCheckin, getAchievements, getLeaderboard,
+  challengeBoss, fightEnemy, avoidEncounter, rest, getAnnouncements, getTitles, setTitle, dailyCheckin, getAchievements, getLeaderboard,
 };

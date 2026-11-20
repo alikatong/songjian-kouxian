@@ -37,7 +37,7 @@
       <view class="row"><view><text class="page-kicker">{{character.breakthrough.is_major ? '大境界冲关' : '小境界突破'}}</text><view class="panel-title chance">成功率 {{chanceText}}</view></view><text class="failure-count">失败经验 {{character.breakthrough_failures}} / 4</text></view>
       <text class="panel-copy">失败损失 {{character.breakthrough.loss_min * 100}}%-{{character.breakthrough.loss_max * 100}}% 灵气{{character.breakthrough.is_major ? '，无保护可能跌境' : ''}}</text>
       <text class="source-line">{{breakthroughSummary}}</text>
-      <button class="primary full-command" bindtap="breakthrough" loading="{{busy}}" disabled="{{busy || qiPercent < 100 || character.retreat.active}}">{{qiPercent >= 100 ? '尝试破境' : '灵气未满'}}</button>
+      <button class="primary full-command" bindtap="breakthrough" loading="{{busy}}" disabled="{{busy || qiPercent < 100 || character.retreat.active || character.breakthrough.is_max}}">{{character.breakthrough.is_max ? '已达大乘圆满' : qiPercent >= 100 ? '尝试破境' : '灵气未满'}}</button>
     </view>
 
     <view class="panel">

@@ -2,19 +2,24 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { randomBytes } = require('node:crypto');
 const { newDb } = require('pg-mem');
+const { Client } = require('pg');
+const { combatStats } = require('../src/utils/gameMath');
 
-test('all migrations build a fresh database and seed playable content', async () => {
+const migrationsDir = path.join(__dirname, '../db/migrations');
+const balanceMigration = '035_rebalance_progression_and_loadouts.sql';
+const baselineMigrations = fs.readdirSync(migrationsDir)
+  .filter((name) => name.endsWith('.sql') && name < balanceMigration)
+  .sort();
+
+test('baseline migrations build a fresh database and seed playable content', async () => {
   const db = newDb({ autoCreateForeignKeyIndices: true });
   const adapter = db.adapters.createPg();
   const client = new adapter.Client();
   await client.connect();
-  const migrations = fs.readdirSync(path.join(__dirname, '../db/migrations'))
-    .filter((name) => name.endsWith('.sql'))
-    .sort();
-
-  for (const migration of migrations) {
-    const sql = fs.readFileSync(path.join(__dirname, '../db/migrations', migration), 'utf8');
+  for (const migration of baselineMigrations) {
+    const sql = fs.readFileSync(path.join(migrationsDir, migration), 'utf8');
     await client.query(sql);
   }
 
@@ -127,4 +132,49 @@ test('all migrations build a fresh database and seed playable content', async ()
   assert.equal(auctionRows.rows[0].count, 0);
   assert.equal(explorationLogs.rows[0].count, 0);
   await client.end();
+});
+
+test('PostgreSQL 迁移保留旧藏并按比例换算旧角色', { skip: !process.env.BALANCE_TEST_DATABASE_URL }, async () => {
+  const client = new Client({ connectionString: process.env.BALANCE_TEST_DATABASE_URL });
+  const schema = `balance_test_${randomBytes(8).toString('hex')}`;
+  await client.connect();
+  try {
+    // pg-mem 不支持这次迁移用到的集合更新。真实数据库测试在独立事务中建库，最后整体回滚。
+    await client.query('BEGIN');
+    await client.query(`CREATE SCHEMA ${schema}`);
+    await client.query(`SET LOCAL search_path TO ${schema}`);
+    for (const name of baselineMigrations) {
+      await client.query(fs.readFileSync(path.join(migrationsDir, name), 'utf8'));
+    }
+    const { rows: [legacy] } = await client.query(`
+      WITH account AS (INSERT INTO users(username, password_hash) VALUES ('legacy_player', 'test-only') RETURNING id)
+      INSERT INTO characters(user_id, name, realm_id, current_qi, hp, hp_max, atk, bonus_hp, bonus_atk, spirit_stones, major_stat_multiplier)
+      SELECT account.id, '旧存档', realms.id, qi_required / 2, 600, 1000, 999999, 10, 7, 4567, 27
+      FROM account JOIN realms ON order_index = 20 RETURNING id, realm_id`);
+    await client.query(`INSERT INTO character_equipment(character_id, equipment_id, quantity, equipped, equipped_slot)
+      SELECT $1, id, 2, TRUE, 'attack' FROM equipment WHERE code = 'weapon_huanxue_18'`, [legacy.id]);
+
+    await client.query(fs.readFileSync(path.join(migrationsDir, balanceMigration), 'utf8'));
+
+    const { rows: [character] } = await client.query(`SELECT c.*, r.qi_required FROM characters c
+      JOIN realms r ON r.id = c.realm_id WHERE c.id = $1`, [legacy.id]);
+    assert.equal(character.realm_id, legacy.realm_id);
+    assert.equal(Number(character.current_qi), Number(character.qi_required) / 2);
+    assert.equal(Number(character.hp), Math.round((combatStats(20).hp + 10) * 0.6));
+    assert.equal(Number(character.atk), combatStats(20).atk + 7);
+    assert.equal(Number(character.spirit_stones), 4567);
+    const { rows: equipment } = await client.query(`SELECT e.code, e.featured, ce.quantity, ce.equipped_slot
+      FROM character_equipment ce JOIN equipment e ON ce.equipment_id = e.id WHERE ce.character_id = $1`, [legacy.id]);
+    assert.deepEqual(equipment, [{ code: 'weapon_huanxue_18', featured: false, quantity: 2, equipped_slot: 'attack' }]);
+    const { rows: [totals] } = await client.query(`SELECT
+      (SELECT count(*)::int FROM techniques WHERE featured) AS techniques,
+      (SELECT count(*)::int FROM equipment WHERE featured) AS equipment,
+      (SELECT count(*)::int FROM (
+        SELECT recipe FROM equipment WHERE featured UNION ALL SELECT recipe FROM items WHERE type = 'major_breakthrough'
+      ) recipes CROSS JOIN LATERAL jsonb_object_keys(recipes.recipe) AS material(code)
+      LEFT JOIN items ON items.code = material.code WHERE items.id IS NULL) AS missing_materials`);
+    assert.deepEqual(totals, { techniques: 65, equipment: 169, missing_materials: 0 });
+  } finally {
+    try { await client.query('ROLLBACK'); } finally { await client.end(); }
+  }
 });

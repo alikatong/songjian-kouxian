@@ -414,6 +414,8 @@
   border-radius: 10px;
   background: #1b291f;
 }
+.boss-challenge { margin-top: 14px; }
+.game-shell .battle-trait { color: #e6ce8d; }
 
 .exploration-atlas summary {
   display: grid;

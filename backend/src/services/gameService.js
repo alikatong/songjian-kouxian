@@ -4,7 +4,7 @@ const {
   breakthroughProfile,
   breakthroughChance,
   retreatGain,
-  scaleTechniqueStats,
+  battleTraits,
   effectiveHp,
 } = require('../utils/gameMath');
 
@@ -31,6 +31,7 @@ const CHARACTER_SELECT = `
          t.name AS technique_name,
          t.rarity AS technique_rarity,
          t.description AS technique_description,
+         t.category AS technique_category,
          COALESCE(t.breakthrough_bonus, 0) AS breakthrough_bonus,
          t.stat_bonuses AS technique_stat_bonuses,
          COALESCE(t.event_bonus, 0) AS technique_event_bonus,
@@ -118,7 +119,7 @@ function portraitUrls(originCode, gender = 'male') {
 }
 
 function serializeCharacter(row, offlineGain = 0) {
-  const techniqueStats = scaleTechniqueStats(row.technique_stat_bonuses, row.technique_rarity);
+  const techniqueStats = row.technique_stat_bonuses || {};
   const equipmentView = (role) => {
     const code = row[`${role}_weapon_code`];
     if (!code) return null;
@@ -129,6 +130,7 @@ function serializeCharacter(row, offlineGain = 0) {
       major_realm: row[`${role}_weapon_major_realm`],
       weapon_type: row[`${role}_weapon_type`],
       combat_role: role,
+      battle_trait: battleTraits[row[`${role}_weapon_type`]] || null,
       image_url: row[`${role}_weapon_image_url`],
       bonuses: {
         atk: Number(row[`${role}_weapon_attack`] || 0),
@@ -205,6 +207,7 @@ function serializeCharacter(row, offlineGain = 0) {
       total_multiplier: Number((RETREAT_MULTIPLIER * Number(row.retreat_technique_multiplier || 1)).toFixed(2)),
     },
     breakthrough: {
+      is_max: row.next_major_realm === null,
       base_chance: breakthrough.baseChance,
       current_chance: currentBreakthroughChance,
       loss_min: breakthrough.lossMin,
@@ -221,6 +224,7 @@ function serializeCharacter(row, offlineGain = 0) {
       name: row.technique_name,
       rarity: row.technique_rarity,
       description: row.technique_description,
+      battle_trait: battleTraits[row.technique_category] || null,
     } : null,
     origin: row.origin_code ? {
       code: row.origin_code,
@@ -248,6 +252,8 @@ function serializeCharacter(row, offlineGain = 0) {
       atk: baseAtk + Number(techniqueStats.atk || 0) + weaponStats.atk,
       def: baseDef + Number(techniqueStats.def || 0) + weaponStats.def,
       spd: baseSpd + Number(techniqueStats.spd || 0) + weaponStats.spd,
+      traits: [row.technique_category, attackEquipment?.weapon_type, defenseEquipment?.weapon_type]
+        .filter((trait) => Object.hasOwn(battleTraits, trait)),
     },
   };
 }
@@ -365,7 +371,7 @@ async function applyEffects(client, character, effects = {}) {
   if (effects.discover_technique) {
     const technique = (await client.query(
       `SELECT t.id, t.code, t.name, t.rarity, t.image_url FROM techniques t
-       WHERE t.major_realm = $1 AND t.required_order <= $2
+       WHERE t.featured AND t.major_realm = $1 AND t.required_order <= $2
          AND NOT EXISTS (
            SELECT 1 FROM character_techniques ct
            WHERE ct.character_id = $3 AND ct.technique_id = t.id
@@ -423,13 +429,13 @@ async function awardAreaDrop(client, character, areaCode, category) {
   if (category === 'technique') {
     const rarity = await chooseAvailableRarity(client,
       `SELECT DISTINCT t.rarity FROM techniques t
-       WHERE t.major_realm = $1 AND t.required_order <= $2
+       WHERE t.featured AND t.major_realm = $1 AND t.required_order <= $2
          AND NOT EXISTS (SELECT 1 FROM character_techniques ct WHERE ct.character_id = $3 AND ct.technique_id = t.id)`,
       [character.major_realm, character.order_index, character.id]);
     if (!rarity) return null;
     const technique = (await client.query(
       `SELECT t.id, t.code, t.name, t.rarity, t.image_url FROM techniques t
-       WHERE t.major_realm = $1 AND t.required_order <= $2
+       WHERE t.featured AND t.major_realm = $1 AND t.required_order <= $2
          AND NOT EXISTS (SELECT 1 FROM character_techniques ct WHERE ct.character_id = $3 AND ct.technique_id = t.id)
          AND t.rarity = $4
        ORDER BY RANDOM() LIMIT 1`,
@@ -466,16 +472,16 @@ async function awardAreaDrop(client, character, areaCode, category) {
     return { source: 'area', category, code: recipe.code, name: recipe.name, rarity: recipe.rarity, image_url: recipe.image_url, quantity: 1 };
   }
 
-  if (category === 'equipment' && Math.random() >= 0.05) {
+  if (category === 'equipment' && Math.random() < 0.12) {
     const rarity = await chooseAvailableRarity(client,
       `SELECT DISTINCT e.rarity FROM equipment e
-       WHERE e.area_code = $1 AND e.required_order <= $2
+       WHERE e.featured AND e.rarity = 'legendary' AND e.area_code = $1 AND e.required_order <= $2
          AND NOT EXISTS (SELECT 1 FROM character_equipment_recipes cer
                          WHERE cer.character_id = $3 AND cer.equipment_id = e.id)`,
       [areaCode, character.order_index, character.id]);
     const recipe = rarity ? (await client.query(
       `SELECT e.id, e.code, e.name, e.rarity, e.image_url FROM equipment e
-       WHERE e.area_code = $1 AND e.required_order <= $2 AND e.rarity = $4
+       WHERE e.featured AND e.area_code = $1 AND e.required_order <= $2 AND e.rarity = $4
          AND NOT EXISTS (SELECT 1 FROM character_equipment_recipes cer
                          WHERE cer.character_id = $3 AND cer.equipment_id = e.id)
        ORDER BY RANDOM() LIMIT 1`,
@@ -492,12 +498,12 @@ async function awardAreaDrop(client, character, areaCode, category) {
   }
 
   const rarity = await chooseAvailableRarity(client,
-    `SELECT DISTINCT rarity FROM equipment WHERE area_code = $1 AND required_order <= $2`,
+    `SELECT DISTINCT rarity FROM equipment WHERE featured AND area_code = $1 AND required_order <= $2`,
     [areaCode, character.order_index]);
   if (!rarity) return null;
   const equipment = (await client.query(
     `SELECT id, code, name, rarity, image_url FROM equipment
-     WHERE area_code = $1 AND required_order <= $2 AND rarity = $3
+     WHERE featured AND area_code = $1 AND required_order <= $2 AND rarity = $3
      ORDER BY RANDOM() LIMIT 1`,
     [areaCode, character.order_index, rarity],
   )).rows[0];

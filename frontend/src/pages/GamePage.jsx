@@ -30,9 +30,6 @@ const mobilePrimaryTabs = new Set(['cultivate', 'explore', 'inventory', 'profile
 const rarityLabels = {
   common: '凡品', uncommon: '良品', rare: '上品', epic: '珍品', legendary: '绝品',
 }
-const ascensionMultipliers = {
-  common: 3, uncommon: 3.05, rare: 3.1, epic: 3.15, legendary: 3.2,
-}
 const breakthroughChanceCap = 0.95
 const typeLabels = {
   material: '炼材', pill: '丹药', breakthrough: '破境丹食', buff: '修炼辅物',
@@ -70,6 +67,7 @@ const formatNumber = (value = 0) => {
 }
 
 const remaining = (date) => Math.max(0, Math.ceil((new Date(date).getTime() - Date.now()) / 1000))
+const queueReady = (task) => task.ready || remaining(task.finish_at) === 0
 const formatDuration = (seconds = 0) => {
   const total = Math.max(0, Math.floor(Number(seconds) || 0))
   const hours = Math.floor(total / 3600)
@@ -300,7 +298,7 @@ function GamePage() {
         if (unlocked.some((area) => area.code === currentArea)) return currentArea
         return (unlocked.findLast((area) => area.available_event_count > 0) || unlocked[unlocked.length - 1]).code
       })
-      if (response.data.character.offline_gain > 0) {
+      if (!quiet && response.data.character.offline_gain > 0) {
         setNotice(`自然修炼所得灵气 ${formatNumber(response.data.character.offline_gain)}`)
       }
     } catch (error) {
@@ -664,6 +662,10 @@ function GamePage() {
     const data = await run(`fight-${enemyCode}`, () => gameAPI.fight(enemyCode))
     if (data) { setBattleDetailSource(null); setBattlePage('summary'); setLastBattle(data) }
   }
+  const challengeBoss = async () => {
+    const result = await run('challenge', () => gameAPI.challengeBoss(activeArea), false, false)
+    if (result) setState((current) => ({ ...current, ...result }))
+  }
   const inspectBattle = (battle) => {
     const loot = battle.loot || {}
     setBattleHistoryOpen(false)
@@ -909,7 +911,18 @@ function GamePage() {
                 <div className="qi-meter"><div className="meter-label"><span>灵气周天</span><b>{formatNumber(localQi)} / {formatNumber(character.qi_required)}</b></div><div className="meter-track"><span style={{ width: `${qiPercent}%` }} /></div><div className="meter-foot"><span>{character.retreat?.active ? '闭关中 · 自然增长已暂停' : `每息 +${formatNumber(character.qi_per_second)} · ${character.technique || '无功法加持'}`}</span><span>{qiPercent.toFixed(1)}%</span></div></div>
                 {character.active_qi_buff && <div className="active-buff"><Sparkles size={16} /><span>修炼增益 ×{character.active_qi_buff.multiplier}</span><small>持续至 {new Date(character.active_qi_buff.expires_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</small></div>}
                 <div className={`retreat-panel ${character.retreat?.active ? 'active' : ''}`}><div><small>{character.retreat?.active ? '闭关进行中' : '闭关修炼'}</small><strong>{character.retreat?.active ? `已闭关 ${formatDuration(retreatElapsed)}` : `总效率 ×${character.retreat?.total_multiplier || 1.75}`}</strong><span>{character.retreat?.active ? `预计出关获得 ${formatNumber(retreatProjected)} 灵气` : `基础 ×${character.retreat?.multiplier || 1.75} · 功法 ×${character.retreat?.technique_multiplier || 1} · 最多结算 ${character.offline_qi_cap_hrs} 小时`}</span></div><button className="secondary-command" onClick={toggleRetreat} disabled={busy === 'retreat' || !character.retreat?.active && localQi >= character.qi_required}><Timer size={17} />{busy === 'retreat' ? '调息中' : character.retreat?.active ? '出关结算' : '开始闭关'}</button></div>
-                <div className="breakthrough-panel"><div><small>{character.breakthrough?.is_major ? '大境界冲关' : '小境界突破'}</small><strong>当前成功率 {Math.round(Math.min(breakthroughChanceCap, character.breakthrough.current_chance + (breakthroughItem ? Number(breakthroughItem.effect?.breakthrough_rate || 0) : 0) + (majorPillItem ? Number(majorPillItem.effect?.breakthrough_rate || 0) : 0)) * 100)}%</strong>{character.breakthrough?.is_major && <span>主修{rarityLabels[character.active_technique?.rarity] || '凡品'}功法 · 成功后基础属性永久 ×{(ascensionMultipliers[character.active_technique?.rarity] || 3).toFixed(2)}</span>}<span>失败损失 {Math.round(character.breakthrough.loss_min * 100)}%-{Math.round(character.breakthrough.loss_max * 100)}% 灵气{character.breakthrough?.is_major ? ' · 无保护将跌一小境界' : ''}</span><span>{breakthroughItem ? `${breakthroughItem.name} × ${breakthroughItem.quantity}` : '无增幅丹'} · {character.breakthrough?.is_major ? majorPillItem ? `${majorPillItem.name} × ${majorPillItem.quantity}` : '缺少本境界专属破境丹' : '无需大境破境丹'} · {protectionItem ? `${protectionItem.name} × ${protectionItem.quantity}（免罚）` : '无护脉丹'} · 失败经验 {Math.min(character.breakthrough_failures, 4)}/4（每次 +3%，最多 +12%）</span></div><button className="primary-command" onClick={doBreakthrough} disabled={localQi < character.qi_required || busy === 'breakthrough' || character.retreat?.active || character.breakthrough?.is_major && !majorPillItem}><Swords size={18} />{busy === 'breakthrough' ? '行功中' : character.breakthrough?.is_major && !majorPillItem ? '缺少破境丹' : localQi >= character.qi_required ? '尝试破境' : '灵气未满'}</button></div>
+                {character.breakthrough.is_max ? <div className="breakthrough-panel"><div><strong>大乘圆满</strong><span>可前往天门绝域挑战最终首领。</span></div><button className="secondary-command" onClick={() => { setActiveArea('heaven_gate'); selectTab('explore') }}>前往天门绝域</button></div> : <div className="breakthrough-panel">
+                  <div>
+                    <small>{character.breakthrough.is_major ? '大境界冲关' : '小境界突破'}</small>
+                    <strong>当前成功率 {Math.round(Math.min(breakthroughChanceCap, character.breakthrough.current_chance + Number(breakthroughItem?.effect?.breakthrough_rate || 0) + Number(majorPillItem?.effect?.breakthrough_rate || 0)) * 100)}%</strong>
+                    <span>失败损失 {Math.round(character.breakthrough.loss_min * 100)}%–{Math.round(character.breakthrough.loss_max * 100)}% 灵气{character.breakthrough.is_major ? ' · 无护脉丹会跌一小境界' : ''}</span>
+                    {character.breakthrough.is_major && <span>{majorPillItem ? '守关破境丹仅在成功后消耗' : '需要守关破境丹。击败首领获得药引后，可在丹谱炼制。'}</span>}
+                    <span>{breakthroughItem ? `${breakthroughItem.name} × ${breakthroughItem.quantity}` : '无增幅丹'} · {protectionItem ? `${protectionItem.name} × ${protectionItem.quantity}（免罚）` : '无护脉丹'} · 失败经验 {Math.min(character.breakthrough_failures, 4)}/4</span>
+                  </div>
+                  <button className="primary-command" onClick={doBreakthrough} disabled={localQi < character.qi_required || Boolean(busy) || character.retreat?.active || character.breakthrough.is_major && !majorPillItem}>
+                    <Swords size={18} />{busy === 'breakthrough' ? '行功中' : character.breakthrough.is_major && !majorPillItem ? '缺少破境丹' : localQi >= character.qi_required ? '尝试破境' : '灵气未满'}
+                  </button>
+                </div>}
               </div>
             </div>
             <section className="cultivation-details" aria-label="修炼信息">
@@ -943,6 +956,10 @@ function GamePage() {
                 </button>
               </div>
               <ExplorationAtlas key={currentArea.code} area={currentArea} />
+              <div className="combat-summary boss-challenge">
+                <div><small>守关试炼</small><span>{character.realm_order < currentArea.max_realm_order ? `达到${currentArea.major_realm}圆满后开放` : currentArea.code === 'heaven_gate' ? '天门绝域的最终试炼。' : '获胜可取得守关药引，开炉炼制破境丹。'}</span></div>
+                <button className="secondary-command" onClick={challengeBoss} disabled={Boolean(busy || state.pending_event || encounter || character.retreat?.active || character.realm_order < currentArea.max_realm_order)}><Swords size={16} />挑战首领</button>
+              </div>
               <div className="field-notes">
                 <span><PackageCheck size={17} />主要材料：{currentArea.material_summary}</span>
                 <span><Zap size={17} />精力 {currentStamina}/{stamina?.max}{nextRestore > 0 ? ` · ${formatDuration(nextRestore)}后恢复 1 点` : ''}</span>
@@ -955,7 +972,7 @@ function GamePage() {
           {activeTab === 'craft' && <div className="craft-view">
             <div className="section-heading"><div><small>丹方有序</small><h1>丹谱</h1></div><FlaskConical size={24} /></div>
             <div className="codex-summary"><span>符合筛选 <b>{gamePages.recipes.total}</b></span><span>当前页 <b>{recipes.length}/10</b></span><span>炉位 <b>{state.queue?.length || 0}/3</b></span></div>
-            <div className="queue-bar">{[0, 1, 2].map((slot) => { const task = state.queue?.[slot]; return <div className="queue-slot" key={slot}>{task ? <><span>{task.name} × {task.quantity}</span><small>{task.ready ? '炼制完成' : `还需 ${remaining(task.finish_at)} 秒`}</small>{task.ready && <button onClick={() => run(`collect-${task.id}`, () => gameAPI.collectCraft(task.id))} disabled={busy === `collect-${task.id}`}>领取</button>}</> : <><span>空闲炉位</span><small>等待安排丹方</small></>}</div> })}</div>
+            <div className="queue-bar">{[0, 1, 2].map((slot) => { const task = state.queue?.[slot]; return <div className="queue-slot" key={slot}>{task ? <><span>{task.name} × {task.quantity}</span><small>{queueReady(task) ? '炼制完成' : `还需 ${remaining(task.finish_at)} 秒`}</small>{queueReady(task) && <button onClick={() => run(`collect-${task.id}`, () => gameAPI.collectCraft(task.id))} disabled={busy === `collect-${task.id}`}>领取</button>}</> : <><span>空闲炉位</span><small>等待安排丹方</small></>}</div> })}</div>
             <CollectionToolbar query={collectionViews.craft.query} category={collectionViews.craft.category} categories={[["all", "全部丹谱"], ["unlocked", "已收录"], ["locked", "未收录"]]} onQuery={(query) => updateCollection('craft', { query })} onCategory={(category) => updateCollection('craft', { category })} />
             <QualityFilter value={quality} onChange={(value) => { setQuality(value); updateCollection('craft', { page: 1 }) }} />
             <div className="recipe-list codex-grid">{paginate(recipes, collectionViews.craft.page).map((recipe) => <article key={recipe.code} className={!recipe.unlocked ? 'locked-entry' : ''}>{recipe.image_url && <img className="item-art" src={recipe.image_url} alt="" loading="lazy" />}<div className="entry-main"><div><span className={`rarity ${recipe.rarity}`}>{rarityLabels[recipe.rarity]}</span><h3>{recipe.name}</h3></div><p>{recipe.description}</p><p className="effect-line">{recipe.effect_summary}</p><div className="ingredients">{recipe.ingredients.map((item) => <span key={item.code} className={item.owned < item.quantity ? 'missing' : ''}>{item.name} {item.owned}/{item.quantity}{item.source_area ? ` · ${item.source_area}` : ''}</span>)}</div><small className="source-line">{recipe.source_description}</small></div><div className="recipe-action"><small>{recipe.unlocked ? `${recipe.craft_time_s} 秒` : '丹谱未收录'}</small><button className="icon-button" title={recipe.unlocked ? `炼制${recipe.name}` : '尚未收录丹谱'} onClick={() => run(`craft-${recipe.code}`, () => gameAPI.craft(recipe.code))} disabled={Boolean(busy) || !recipe.unlocked}><ChevronRight size={18} /></button></div></article>)}</div>
@@ -967,7 +984,20 @@ function GamePage() {
             <div className="codex-summary"><span>符合筛选 <b>{gamePages.techniques.total}</b></span><span>当前页 <b>{techniques.length}/10</b></span><span>当前修习 <b>{character.technique}</b></span></div>
             <CollectionToolbar query={collectionViews.techniques.query} category={collectionViews.techniques.category} categories={[["all", "全部功法"], ["owned", "已收录"], ["unowned", "未收录"]]} onQuery={(query) => updateCollection('techniques', { query })} onCategory={(category) => updateCollection('techniques', { category })} />
             <QualityFilter value={quality} onChange={(value) => { setQuality(value); updateCollection('techniques', { page: 1 }) }} />
-            <div className="technique-grid codex-grid">{paginate(techniques, collectionViews.techniques.page).map((technique) => <article key={technique.code} className={!technique.owned ? 'locked-entry' : ''}><div className="entry-head"><span className={`rarity ${technique.rarity}`}>{rarityLabels[technique.rarity]}</span><span>{technique.category}</span></div><h3>{technique.name}</h3><p>{technique.description}</p><div className="effect-stats"><span>修炼 ×{technique.qi_multiplier}</span><span>闭关 ×{technique.retreat_multiplier}</span>{Object.entries(technique.stat_bonuses || {}).map(([key, value]) => <span key={key}>{statLabels[key]} +{value}</span>)}{technique.breakthrough_bonus > 0 && <span>破境 +{Math.round(technique.breakthrough_bonus * 100)}%</span>}{technique.event_bonus > 0 && <span>奇缘 +{Math.round(technique.event_bonus * 100)}%</span>}</div><small className="source-line">{technique.source_description}</small><button className={technique.active ? 'active-technique' : 'secondary-command'} onClick={() => run(`equip-${technique.code}`, () => gameAPI.equipTechnique(technique.code))} disabled={!technique.owned || technique.active || Boolean(busy)}>{technique.active ? '当前修习' : technique.owned ? '设为主修' : '功法谱未收录'}</button></article>)}</div>
+            <div className="technique-grid codex-grid">{paginate(techniques, collectionViews.techniques.page).map((technique) => <article key={technique.code} className={!technique.owned ? 'locked-entry' : ''}>
+              <div className="entry-head"><span>{technique.category}</span>{!technique.featured && <span>旧藏</span>}</div>
+              <h3>{technique.name}</h3><p>{technique.description}</p>
+              {technique.battle_trait && <p className="battle-trait"><strong>{technique.battle_trait.name}</strong> {technique.battle_trait.description}</p>}
+              <div className="effect-stats">
+                {technique.qi_multiplier > 1 && <span>修炼 ×{technique.qi_multiplier}</span>}
+                {technique.retreat_multiplier > 1 && <span>闭关 ×{technique.retreat_multiplier}</span>}
+                {Object.entries(technique.stat_bonuses || {}).map(([stat, value]) => <span key={stat}>{statLabels[stat]} +{value}</span>)}
+                {technique.breakthrough_bonus > 0 && <span>破境成功率 +{Math.round(technique.breakthrough_bonus * 100)}%</span>}
+                {technique.event_bonus > 0 && <span>异宝掉率 +{Math.round(technique.event_bonus * 15)}%</span>}
+              </div>
+              <small className="source-line">{technique.source_description}</small>
+              <button className={technique.active ? 'active-technique' : 'secondary-command'} onClick={() => run(`equip-${technique.code}`, () => gameAPI.equipTechnique(technique.code))} disabled={!technique.owned || technique.active || Boolean(busy) || character.retreat?.active}>{technique.active ? '当前修习' : !technique.owned ? '功法谱未收录' : character.retreat?.active ? '出关后可切换' : '设为主修'}</button>
+            </article>)}</div>
             <Pagination page={gamePages.techniques.page} total={gamePages.techniques.total} onChange={(page) => updateCollection('techniques', { page })} />
           </div>}
 
@@ -979,21 +1009,22 @@ function GamePage() {
                 ['defense', '护器位', Shield, '甲、袍、冠、履、盾等护器，以防御与气血为主。'],
               ].map(([slot, label, SlotIcon, emptyText]) => {
                 const equipped = character.equipped_weapons?.[slot]
-                return <div className={`equipped-strip equipped-${slot}`} key={slot}>{equipped ? <><img src={equipped.image_url} alt="" /><div><small>{label}</small><strong>{equipped.name}</strong><span>攻击 +{equipped.bonuses.atk} · 防御 +{equipped.bonuses.def} · 气血 +{equipped.bonuses.hp} · 身法 +{equipped.bonuses.spd}</span></div><button className="secondary-command" onClick={() => run(`unequip-${slot}`, () => gameAPI.unequipWeapon(slot))}>卸下</button></> : <><SlotIcon size={30} /><div><small>{label}</small><strong>尚未装备</strong><span>{emptyText}</span></div></>}</div>
+                return <div className={`equipped-strip equipped-${slot}`} key={slot}>{equipped ? <>{equipped.image_url ? <img src={equipped.image_url} alt="" /> : <SlotIcon size={30} />}<div><small>{label}</small><strong>{equipped.name}</strong><span>{equipped.battle_trait?.description}</span></div><button className="secondary-command" onClick={() => run(`unequip-${slot}`, () => gameAPI.unequipWeapon(slot))}>卸下</button></> : <><SlotIcon size={30} /><div><small>{label}</small><strong>尚未装备</strong><span>{emptyText}</span></div></>}</div>
               })}
             </div>
-            <div className="queue-bar forging-queue">{[0, 1, 2].map((slot) => { const task = state.equipment_queue?.[slot]; return <div className="queue-slot" key={slot}>{task ? <><span>{task.name} × {task.quantity}</span><small>{task.ready ? '器物已成' : `还需 ${remaining(task.finish_at)} 秒`}</small>{task.ready && <button onClick={() => run(`collect-forge-${task.id}`, () => gameAPI.collectForging(task.id))} disabled={busy === `collect-forge-${task.id}`}>领取</button>}</> : <><span>空闲炉位</span><small>等待器谱入炉</small></>}</div> })}</div>
+            <div className="queue-bar forging-queue">{[0, 1, 2].map((slot) => { const task = state.equipment_queue?.[slot]; return <div className="queue-slot" key={slot}>{task ? <><span>{task.name} × {task.quantity}</span><small>{queueReady(task) ? '器物已成' : `还需 ${remaining(task.finish_at)} 秒`}</small>{queueReady(task) && <button onClick={() => run(`collect-forge-${task.id}`, () => gameAPI.collectForging(task.id))} disabled={busy === `collect-forge-${task.id}`}>领取</button>}</> : <><span>空闲炉位</span><small>等待器谱入炉</small></>}</div> })}</div>
             <div className="codex-summary"><span>符合筛选 <b>{gamePages.equipment.total}</b></span><span>当前页 <b>{equipment.length}/10</b></span><span>炼器炉位 <b>{state.equipment_queue?.length || 0}/3</b></span></div>
             <CollectionToolbar query={collectionViews.equipment.query} category={collectionViews.equipment.category} categories={[["all", "全部器物"], ["attack", "武器"], ["defense", "护器"], ["recipe_unlocked", "已收录器谱"], ["owned", "已持有"], ["equipped", "装备中"], ["unowned", "未持有"]]} onQuery={(query) => updateCollection('equipment', { query })} onCategory={(category) => updateCollection('equipment', { category })} />
             <QualityFilter value={quality} onChange={(value) => { setQuality(value); updateCollection('equipment', { page: 1 }) }} />
             <div className="equipment-grid codex-grid">{paginate(equipment, collectionViews.equipment.page).map((item) => {
-              const canForge = item.recipe_unlocked && item.ingredients?.every((material) => material.owned >= material.quantity)
+              const canForge = item.recipe_unlocked && item.can_equip && item.ingredients?.every((material) => material.owned >= material.quantity)
               return <article key={item.code} className={item.quantity < 1 && !item.recipe_unlocked ? 'locked-entry' : ''}>
-                <img className="equipment-art" src={item.image_url} alt="" loading="lazy" />
+                {item.image_url ? <img className="equipment-art" src={item.image_url} alt="" loading="lazy" /> : <Shield className="equipment-art" aria-hidden="true" />}
                 <div className="entry-main">
-                  <div className="entry-head"><span className={`rarity ${item.rarity}`}>{rarityLabels[item.rarity]}</span><span>{item.combat_role === 'attack' ? '武器' : '护器'} · {weaponTypeLabels[item.weapon_type]} · {item.major_realm}</span></div>
+                  <div className="entry-head"><span className={`rarity ${item.rarity}`}>{item.featured ? rarityLabels[item.rarity] : '旧藏'}</span><span>{item.combat_role === 'attack' ? '武器' : '护器'} · {weaponTypeLabels[item.weapon_type]} · {item.major_realm}</span></div>
                   <h3>{item.name}</h3><p>{item.description}</p>
-                  <div className="effect-stats"><span>攻击 +{item.attack_bonus}</span>{item.defense_bonus > 0 && <span>防御 +{item.defense_bonus}</span>}{item.hp_bonus > 0 && <span>气血 +{item.hp_bonus}</span>}{item.speed_bonus > 0 && <span>身法 +{item.speed_bonus}</span>}</div>
+                  {item.battle_trait && <p className="battle-trait"><strong>{item.battle_trait.name}</strong> {item.battle_trait.description}</p>}
+                  <div className="effect-stats">{item.attack_bonus > 0 && <span>攻击 +{item.attack_bonus}</span>}{item.defense_bonus > 0 && <span>防御 +{item.defense_bonus}</span>}{item.hp_bonus > 0 && <span>气血 +{item.hp_bonus}</span>}{item.speed_bonus > 0 && <span>身法 +{item.speed_bonus}</span>}</div>
                   <div className="ingredients forging-ingredients">{item.ingredients?.map((material) => <span key={material.code} className={material.owned < material.quantity ? 'missing' : ''}>{material.name} {material.owned}/{material.quantity}{material.source_area ? ` · ${material.source_area}` : ''}</span>)}</div>
                   <small className="source-line">{item.recipe_unlocked ? item.source_description : item.recipe_source_description || item.source_description}</small>
                 </div>

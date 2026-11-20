@@ -105,6 +105,7 @@ export const gameAPI = {
   startRetreat: () => client.post('/game/retreat/start', {}),
   endRetreat: () => client.post('/game/retreat/end', {}),
   explore: (area = 'luoxia') => client.post('/game/explore', { area }),
+  challengeBoss: (area) => client.post('/game/pve/challenge', { area }),
   fight: (enemyCode) => client.post('/game/pve/fight', { enemy_code: enemyCode }),
   avoidEncounter: () => client.post('/game/pve/avoid', {}),
   rest: () => client.post('/game/pve/rest', {}),

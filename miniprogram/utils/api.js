@@ -24,6 +24,7 @@ module.exports = {
     retreatStart: () => post('/game/retreat/start'),
     retreatEnd: () => post('/game/retreat/end'),
     explore: (area) => post('/game/explore', { area }),
+    challengeBoss: (area) => post('/game/pve/challenge', { area }),
     chooseEvent: (choiceIndex) => post('/game/events/choose', { choice_index: choiceIndex }),
     fight: (enemyCode) => post('/game/pve/fight', { enemy_code: enemyCode }),
     avoid: () => post('/game/pve/avoid'),
