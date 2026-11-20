@@ -1,9 +1,0 @@
-<view class="page more-page">
-  <scroll-view scroll-x class="resource-strip" wx:if="{{character}}"><view class="resource" wx:for="{{resources}}" wx:key="label"><text class="resource-label">{{item.label}}</text><text class="resource-value">{{item.value}}</text></view></scroll-view>
-  <view class="page-head"><view><text class="page-kicker">洞府诸务</text><view class="page-title">更多功能</view><text class="page-subtitle">丹器、同道与坊市事务</text></view></view>
-  <view class="loading" wx:if="{{loading}}">正在整理洞府事务...</view>
-  <block wx:else>
-    <view class="feature-grid"><view class="feature" wx:for="{{features}}" wx:key="id" data-id="{{item.id}}" bindtap="openFeature"><view class="feature-glyph">{{item.glyph}}</view><view><text class="feature-title">{{item.title}}</text><text class="feature-copy">{{item.copy}}</text></view><text class="feature-arrow">›</text></view></view>
-    <view class="panel notice-panel"><view class="panel-title">山门告示</view><view class="list-item" wx:for="{{announcements}}" wx:key="id"><text class="item-name">{{item.title}}</text><text class="item-meta">{{item.body}}</text></view><view class="empty compact" wx:if="{{!announcements.length}}">暂无新告示</view></view>
-  </block>
-</view>

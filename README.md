@@ -1,6 +1,6 @@
 # 松间叩仙
 
-一款前后端分离的国风文字修仙 RPG。项目以 Web 端为主要体验，围绕修炼、突破、游历、战斗、功法、装备、炼丹、炼器、坊市和社交构建完整成长闭环，并提供独立后端、PostgreSQL 数据层与 Windows 运营管理台。
+一款前后端分离的国风文字修仙 RPG，支持电脑和手机浏览器。玩家可以修炼、突破、游历、交战、研习功法、炼丹炼器、交易和交友。项目提供独立后端、PostgreSQL 数据层与 Windows 运营管理台。
 
 ![松间叩仙 Web 修炼界面](docs/screenshots/web-cultivation.png)
 
@@ -11,7 +11,7 @@
 - 探索与战斗：13 个游历区域、137 条随机事件和 39 名敌人。达到守关境界后可主动挑战首领，无装备品质门槛。
 - 生产与经济：炼丹、炼器队列，材料来源追踪，系统商店、玩家拍卖与交易信箱。
 - 社交系统：玩家搜索、好友申请、世界传音、好友私聊。
-- 多端架构：React Web 主客户端、Express API、PostgreSQL、实验性微信小程序客户端和 Windows 管理台。
+- 项目架构：React 网页端、Express API、PostgreSQL 和 Windows 运营管理台。
 - 服务端可信：掉率、战斗、突破、库存和交易结算均由后端执行，关键写操作使用事务和幂等保护。
 
 ## 功能截图
@@ -87,7 +87,6 @@ Windows 管理台提供运营总览、玩家管理、邮件、聊天审核、拍
 ```mermaid
 flowchart LR
     WEB[React Web 客户端] --> API[Express REST API]
-    MINI[微信小程序实验客户端] --> API
     ADMIN[Windows 管理台] --> ADMINAPI[管理 API]
     ADMINAPI --> API
     API --> DB[(PostgreSQL)]
@@ -96,10 +95,9 @@ flowchart LR
 
 | 模块 | 技术 |
 | --- | --- |
-| Web 前端 | React 18、Vite 5、Zustand、Axios、Lucide React |
-| 后端 | Node.js 20、Express 4、JWT、Helmet、Rate Limit |
+| Web 前端 | React 18、Vite 8、Zustand、Axios、Lucide React |
+| 后端 | Node.js、Express 4、JWT、Helmet、Rate Limit |
 | 数据库 | PostgreSQL 16、SQL Migration |
-| 微信客户端 | 原生微信小程序，当前为实验性客户端 |
 | 管理台 | .NET 8、WPF、WebView2 |
 | 部署 | Docker、Docker Compose、Nginx |
 
@@ -107,10 +105,9 @@ flowchart LR
 
 ```text
 songjian-kouxian/
-├── frontend/                  # React Web 主客户端
+├── frontend/                  # React 网页端
 ├── backend/                   # Express API、迁移、测试和服务端美术资源
 ├── admin-tool/                # Windows 运营管理台
-├── miniprogram/               # 实验性微信小程序客户端
 ├── docs/                      # 部署文档、设计记录与项目截图
 ├── scripts/                   # Windows 本地开发启停脚本
 ├── docker-compose.yml         # Web + API + PostgreSQL 完整部署
@@ -123,7 +120,7 @@ songjian-kouxian/
 
 ### 环境要求
 
-- Node.js 20+
+- Node.js 22.12+（建议使用 LTS 版本）
 - npm 10+
 - PostgreSQL 16+，或 Docker Desktop / Docker Engine
 - 构建管理台时需要 .NET 8 SDK 和 Windows
@@ -162,9 +159,8 @@ Copy-Item backend/.env.example backend/.env
 | `AUTH_COOKIE_MAX_AGE_MS` | Web 会话 Cookie 有效期（毫秒），默认 7 天；生产环境需使用 HTTPS |
 | `ADMIN_JWT_SECRET` | 独立的管理端 JWT 密钥 |
 | `CLIENT_ORIGIN` | 允许访问 API 的 Web 来源，多个地址用英文逗号分隔 |
-| `WECHAT_APP_ID` / `WECHAT_APP_SECRET` | 仅实验性小程序登录需要 |
 
-不要提交真实 `.env`、数据库口令或微信密钥。
+不要提交真实 `.env`、数据库口令或 JWT 密钥。
 
 ### 3. 初始化数据库
 
@@ -207,23 +203,23 @@ Windows 也可以在项目根目录运行：
 
 ```bash
 cp .env.example .env
-# 编辑 .env，设置数据库密码和 JWT 密钥
+# 编辑 .env，设置数据库密码、JWT 密钥和网页的 HTTPS 来源 CLIENT_ORIGIN
 docker compose up -d --build
 docker compose logs -f
 ```
 
-启动后通过 `http://服务器地址` 访问 Web 端。
+生产环境通过 HTTPS 域名访问网页。会话 Cookie 需要 HTTPS 才能用于登录后的请求。
 
 ### 仅部署后端
 
-已有远程 PostgreSQL，或需要给独立客户端提供 API 时：
+已有 PostgreSQL，且网页静态文件由外部服务器托管时，可单独启动后端：
 
 ```bash
 cp backend/.env.example backend/.env
 docker compose -f docker-compose.backend.yml up -d --build
 ```
 
-生产环境应通过 Nginx、Caddy 或云负载均衡提供 HTTPS。详细说明见 [后端与小程序部署文档](docs/deployment/backend-and-miniprogram.md)。
+生产环境应通过 Nginx、Caddy 或云负载均衡提供 HTTPS。详细步骤见 [网页端与后端部署文档](docs/deployment/web-and-backend.md)。
 
 ## 管理台
 
@@ -242,21 +238,11 @@ dotnet build admin-tool/SongJian.AdminTool/SongJian.AdminTool.csproj -c Release 
 
 管理台默认连接 `http://127.0.0.1:3001`。所有管理写操作要求填写原因与幂等键，并记录不可变审计日志。
 
-## 实验性微信小程序
-
-`miniprogram/` 保留原生微信小程序客户端，目前不是项目主展示端。使用前需要修改：
-
-- `miniprogram/config/env.js` 中的 API 与静态资源地址。
-- 微信公众平台的服务器域名白名单。
-- 生产环境 HTTPS 证书与合法域名。
-
-个人主体或未开通手机号能力的账号可使用普通账号登录流程。
-
 ## 主要 API
 
 | 模块 | 主要接口 |
 | --- | --- |
-| 认证 | `POST /api/auth/register`、`POST /api/auth/login` |
+| 认证 | `POST /api/auth/register`、`POST /api/auth/login`、`GET /api/auth/session`、`POST /api/auth/logout` |
 | 角色 | `GET /api/character`、`POST /api/character/create`、`POST /api/character/breakthrough` |
 | 修炼 | `POST /api/game/retreat/start`、`POST /api/game/retreat/end` |
 | 游历战斗 | `POST /api/game/explore`、`POST /api/game/pve/fight`、`POST /api/game/pve/avoid` |
@@ -284,7 +270,7 @@ cd backend
 node scripts/verify-content.js
 ```
 
-当前自动化测试覆盖认证、离线收益、突破、战斗、分页、好友消息、微信服务和数据库迁移等关键逻辑。
+当前自动化测试覆盖网页会话、离线收益、突破、战斗、分页、好友消息和数据库迁移等关键逻辑。
 
 ## 安全说明
 

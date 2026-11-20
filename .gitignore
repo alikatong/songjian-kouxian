@@ -26,7 +26,6 @@ Thumbs.db
 # Editor
 .vscode/settings.json
 .idea/
-miniprogram/project.private.config.json
 
 # Runtime
 pids/
