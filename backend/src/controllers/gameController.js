@@ -17,11 +17,19 @@ const {
 function eventView(event) {
   return event ? {
     code: event.code,
+    area_code: event.area_code,
     title: event.title,
     body: event.body,
     image_url: event.image_url,
     choices: event.choices.map(({ text }) => ({ text })),
   } : null;
+}
+
+function exploreCooldownRemaining(lastExploredAt) {
+  if (!lastExploredAt) return 0;
+  const cooldown = Number(process.env.EXPLORE_COOLDOWN_SECONDS || 15);
+  const elapsed = (Date.now() - new Date(lastExploredAt).getTime()) / 1000;
+  return Math.max(0, Math.ceil(cooldown - elapsed));
 }
 
 const rarityOrder = "CASE i.rarity WHEN 'legendary' THEN 0 WHEN 'epic' THEN 1 WHEN 'rare' THEN 2 WHEN 'uncommon' THEN 3 ELSE 4 END";
@@ -230,9 +238,22 @@ async function codexState(client, character, includeCollections = true) {
   const areas = (await client.query(
     `SELECT a.*, COALESCE(cep.misses, 0)::int AS encounter_misses,
             (a.min_realm_order <= $1) AS unlocked,
-            (SELECT count(*)::int FROM events e WHERE e.area_code = a.code) AS event_count
+            COALESCE(atlas.event_count, 0) AS event_count,
+            COALESCE(atlas.available_event_count, 0) AS available_event_count,
+            COALESCE(atlas.discoverable_count, 0) AS discoverable_count,
+            COALESCE(atlas.discovered_events, '[]'::json) AS discovered_events
      FROM areas a
      LEFT JOIN character_encounter_pity cep ON cep.area_code = a.code AND cep.character_id = $2
+     LEFT JOIN (
+       SELECT e.area_code, count(*)::int AS event_count,
+              (count(*) FILTER (WHERE $1 BETWEEN e.min_realm_order AND e.max_realm_order))::int AS available_event_count,
+              (count(*) FILTER (WHERE ce.event_id IS NULL AND $1 BETWEEN e.min_realm_order AND e.max_realm_order))::int AS discoverable_count,
+              json_agg(json_build_object('code', e.code, 'title', e.title) ORDER BY e.id)
+                FILTER (WHERE ce.event_id IS NOT NULL) AS discovered_events
+       FROM events e
+       LEFT JOIN (SELECT DISTINCT event_id FROM character_events WHERE character_id = $2) ce ON ce.event_id = e.id
+       GROUP BY e.area_code
+     ) atlas ON atlas.area_code = a.code
      ORDER BY a.min_realm_order`,
     [character.order_index, character.id],
   )).rows;
@@ -475,6 +496,7 @@ async function getGameState(req, res, next) {
         ...pve,
         breakthrough_items: breakthroughItems,
         pending_event: eventView(pendingEvent),
+        explore_cooldown_seconds: exploreCooldownRemaining(character.last_explore_at),
       };
     });
     return res.json(state);
@@ -1030,19 +1052,15 @@ async function explore(req, res, next) {
       }
       if (character.pending_event_id) {
         const pending = (await client.query('SELECT * FROM events WHERE id = $1', [character.pending_event_id])).rows[0];
-        return { event: eventView(pending), resumed: true };
+        return { event: eventView(pending), resumed: true, explore_cooldown_seconds: exploreCooldownRemaining(character.last_explore_at) };
       }
       if (character.pending_enemy_code) {
         const error = new Error('附近仍有敌人逼近，请先迎战或避开'); error.status = 409; throw error;
       }
-      const cooldown = Number(process.env.EXPLORE_COOLDOWN_SECONDS || 15);
-      const elapsed = character.last_explore_at
-        ? (Date.now() - new Date(character.last_explore_at).getTime()) / 1000
-        : cooldown;
-      if (elapsed < cooldown) {
-        const error = new Error(`游历太频繁，还需 ${Math.ceil(cooldown - elapsed)} 秒`);
-        error.status = 429;
-        error.retryAfter = Math.ceil(cooldown - elapsed);
+      const retryAfter = exploreCooldownRemaining(character.last_explore_at);
+      if (retryAfter > 0) {
+        const error = new Error(`游历太频繁，还需 ${retryAfter} 秒`);
+        error.retryAfter = retryAfter;
         throw error;
       }
       const area = typeof req.body.area === 'string' ? req.body.area : 'luoxia';
@@ -1068,19 +1086,24 @@ async function explore(req, res, next) {
       if (!event) {
         const error = new Error('当前区域还没有可触发事件'); error.status = 404; throw error;
       }
-      await client.query(
+      const { rows: [updated] } = await client.query(
         `UPDATE characters SET pending_event_id = $1, last_explore_at = NOW(),
-           stamina = stamina - $2, stamina_updated_at = NOW() WHERE id = $3`,
+           stamina = stamina - $2, stamina_updated_at = NOW() WHERE id = $3
+         RETURNING last_explore_at`,
         [event.id, staminaCost, character.id],
       );
       return {
         event: eventView(event), resumed: false, stamina_cost: staminaCost,
         stamina_remaining: Number(character.stamina) - staminaCost,
+        explore_cooldown_seconds: exploreCooldownRemaining(updated.last_explore_at),
       };
     });
     return res.json(result);
   } catch (error) {
-    if (error.retryAfter) res.set('Retry-After', String(error.retryAfter));
+    if (error.retryAfter) {
+      res.set('Retry-After', String(error.retryAfter));
+      return res.status(429).json({ error: error.message, retry_after: error.retryAfter });
+    }
     return next(error);
   }
 }
@@ -1097,10 +1120,11 @@ async function chooseEvent(req, res, next) {
         const error = new Error('当前没有待处理事件'); error.status = 409; throw error;
       }
       const event = (await client.query(
-        `SELECT e.*, a.name AS area_name
+        `SELECT e.*, a.name AS area_name,
+                NOT EXISTS (SELECT 1 FROM character_events ce WHERE ce.character_id = $2 AND ce.event_id = e.id) AS first_discovery
          FROM events e LEFT JOIN areas a ON a.code = e.area_code
          WHERE e.id = $1`,
-        [character.pending_event_id],
+        [character.pending_event_id, character.id],
       )).rows[0];
       const choice = event?.choices?.[choiceIndex];
       if (!choice) {
@@ -1174,6 +1198,7 @@ async function chooseEvent(req, res, next) {
       );
       return {
         title: event.title,
+        first_discovery: event.first_discovery,
         result: discoveries.length ? `${choice.result} 另有收获：${discoveries.join('、')}。` : choice.result,
         narrative: choice.result,
         effects: choice.effects,

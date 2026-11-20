@@ -130,6 +130,24 @@ function RewardArt({ reward, className = 'reward-art' }) {
   return <span className={`${className} reward-art-fallback`}><Icon size={18} /></span>
 }
 
+function ExplorationAtlas({ area }) {
+  const entries = area.discovered_events || []
+  const complete = area.event_count > 0 && entries.length === area.event_count
+  return <details className="exploration-atlas">
+    <summary>
+      <BookOpen size={19} aria-hidden="true" />
+      <strong>奇遇图鉴</strong>
+      <progress value={entries.length} max={area.event_count || 1} aria-label={`${area.name}奇遇收录进度`} />
+      <span>已收录 {entries.length}/{area.event_count}</span>
+      <ChevronRight size={16} aria-hidden="true" />
+    </summary>
+    <p>{complete ? '此地奇遇已全部收录。' : area.discoverable_count > 0
+      ? `当前境界还有 ${area.discoverable_count} 则新奇遇可发现。`
+      : '当前境界已没有新的奇遇可发现。'}</p>
+    {entries.length > 0 && <ul>{entries.map(({ code, title }) => <li key={code}><Check size={15} aria-hidden="true" />{title}</li>)}</ul>}
+  </details>
+}
+
 function CreateCharacter({ onCreated }) {
   const [name, setName] = useState('')
   const [gender, setGender] = useState('male')
@@ -196,7 +214,7 @@ function GamePage() {
   const [localQi, setLocalQi] = useState(0)
   const [activeTab, setActiveTab] = useState('cultivate')
   const [cultivationView, setCultivationView] = useState('technique')
-  const [activeArea, setActiveArea] = useState('luoxia')
+  const [activeArea, setActiveArea] = useState(null)
   const [quality, setQuality] = useState('all')
   const [loading, setLoading] = useState(true)
   const [needsCharacter, setNeedsCharacter] = useState(false)
@@ -267,14 +285,21 @@ function GamePage() {
     try {
       const response = await gameAPI.getState()
       if (requestId !== stateRequestId.current) return
-      setState(response.data)
+      setState({
+        ...response.data,
+        exploreReadyAt: Date.now() + (response.data.explore_cooldown_seconds || 0) * 1000,
+        staminaSyncedAt: Date.now(),
+      })
       setCharacter(response.data.character)
       setLocalQi(response.data.character.current_qi)
       setNeedsCharacter(false)
       const unlocked = response.data.areas?.filter((area) => area.unlocked)
-      if (unlocked?.length) setActiveArea((currentArea) => (
-        unlocked.some((area) => area.code === currentArea) ? currentArea : unlocked[unlocked.length - 1].code
-      ))
+      const pendingArea = response.data.pending_event?.area_code || response.data.pending_encounter?.area_code
+      if (unlocked?.length) setActiveArea((currentArea) => {
+        if (unlocked.some((area) => area.code === pendingArea)) return pendingArea
+        if (unlocked.some((area) => area.code === currentArea)) return currentArea
+        return (unlocked.findLast((area) => area.available_event_count > 0) || unlocked[unlocked.length - 1]).code
+      })
       if (response.data.character.offline_gain > 0) {
         setNotice(`自然修炼所得灵气 ${formatNumber(response.data.character.offline_gain)}`)
       }
@@ -461,6 +486,24 @@ function GamePage() {
   ), [marketPages.sellable.items, auctionAsset])
   const encounter = state?.pending_encounter
   const encounterStaminaCost = encounter ? ({ normal: 8, elite: 16, boss: 28 }[encounter.rank] || 8) : 0
+  const stamina = character?.stamina
+  const staminaElapsed = Math.max(0, Math.floor((Date.now() - (state?.staminaSyncedAt ?? Date.now())) / 1000))
+  const sinceFirstRestore = staminaElapsed - (stamina?.next_restore_seconds || 0)
+  const restoredStamina = stamina?.next_restore_seconds > 0 && sinceFirstRestore >= 0
+    ? 1 + Math.floor(sinceFirstRestore / stamina.regen_seconds)
+    : 0
+  const currentStamina = stamina ? Math.min(Math.max(stamina.max, stamina.current), stamina.current + restoredStamina) : 0
+  const nextRestore = currentStamina >= (stamina?.max ?? 0) ? 0 : sinceFirstRestore < 0
+    ? -sinceFirstRestore
+    : stamina.regen_seconds - sinceFirstRestore % stamina.regen_seconds
+  const exploreWait = state?.exploreReadyAt ? remaining(state.exploreReadyAt) : 0
+  let exploreBlock = ''
+  if (!currentArea || currentArea.available_event_count === 0) exploreBlock = '当前境界无可探访奇遇'
+  else if (character?.retreat?.active) exploreBlock = '闭关中不可游历'
+  else if (state.pending_event) exploreBlock = '先处理眼前奇遇'
+  else if (encounter) exploreBlock = '先处理眼前遭遇'
+  else if (currentStamina < currentArea.explore_stamina_cost) exploreBlock = '精力不足'
+  else if (exploreWait) exploreBlock = `歇脚中 · ${exploreWait} 秒`
   const breakthroughItem = useMemo(() => state?.breakthrough_items?.find(
     (item) => item.type === 'breakthrough' && item.effect?.realm_code === character?.realm_code,
   ), [state?.breakthrough_items, character?.realm_code])
@@ -542,11 +585,11 @@ function GamePage() {
     if (auctionQuantity > maxQuantity) setAuctionQuantity(maxQuantity)
   }, [marketPages.sellable.items, selectedAuctionAsset, auctionQuantity])
 
-  const run = async (key, action, after = true) => {
+  const run = async (key, action, after = true, showSuccess = true) => {
     setBusy(key)
     try {
       const response = await action()
-      setNotice(response.data.message || response.data.result || '已完成')
+      if (showSuccess) setNotice(response.data.message || response.data.result || '已完成')
       if (after) {
         await loadState(true)
         setListRevision((value) => value + 1)
@@ -575,22 +618,47 @@ function GamePage() {
       false,
     )
     if (data?.character) {
-      setState((current) => ({ ...current, character: data.character }))
+      setState((current) => ({ ...current, character: data.character, staminaSyncedAt: Date.now() }))
       setCharacter(data.character)
       setLocalQi(data.character.current_qi)
       setNotice(data.message)
     }
   }
   const doExplore = async () => {
-    const data = await run('explore', () => gameAPI.explore(activeArea), false)
-    if (data?.event) setState((current) => ({
-      ...current,
-      pending_event: data.event,
-      character: data.stamina_remaining == null ? current.character : {
-        ...current.character,
-        stamina: { ...current.character.stamina, current: data.stamina_remaining },
-      },
-    }))
+    if (busy || exploreBlock) return
+    const data = await run('explore', async () => {
+      try {
+        return await gameAPI.explore(activeArea)
+      } catch (error) {
+        const retryAfter = error.response?.data?.retry_after
+        if (error.response?.status === 429 && retryAfter > 0) {
+          setState((current) => ({ ...current, exploreReadyAt: Date.now() + retryAfter * 1000 }))
+        }
+        throw error
+      }
+    }, false, false)
+    if (!data?.event) return
+    setNotice('')
+    setExplorationResult(null)
+    setActiveTab('explore')
+    if (data.event.area_code) setActiveArea(data.event.area_code)
+    setState((current) => {
+      const now = Date.now()
+      const next = { ...current, pending_event: data.event, exploreReadyAt: now + (data.explore_cooldown_seconds || 0) * 1000 }
+      if (data.stamina_remaining == null) return next
+      return {
+        ...next,
+        staminaSyncedAt: now,
+        character: {
+          ...current.character,
+          stamina: {
+            ...current.character.stamina,
+            current: data.stamina_remaining,
+            next_restore_seconds: current.character.stamina.regen_seconds,
+          },
+        },
+      }
+    })
   }
   const fight = async (enemyCode) => {
     const data = await run(`fight-${enemyCode}`, () => gameAPI.fight(enemyCode))
@@ -669,12 +737,18 @@ function GamePage() {
     setQuality('all')
     setMobileMenuOpen(false)
   }
+  const closeExplorationResult = () => {
+    setExplorationResult(null)
+    selectTab('explore')
+  }
   const choose = async (index) => {
-    const data = await run(`choice-${index}`, () => gameAPI.chooseEvent(index))
-    if (data) {
-      setExplorationResult(data)
-      setNotice(data.result)
-    }
+    await run(`choice-${index}`, async () => {
+      const response = await gameAPI.chooseEvent(index)
+      setNotice('')
+      setExplorationResult(response.data)
+      setState((current) => ({ ...current, pending_event: null }))
+      return response
+    }, true, false)
   }
   const signOut = async () => {
     try { await authAPI.logout() } catch (_error) { /* The local state must still be cleared. */ }
@@ -797,7 +871,7 @@ function GamePage() {
         <span><Flame size={15} />灵气 <b>{formatNumber(localQi)}</b></span>
         <span><Sparkles size={15} />修炼 <b>{character.retreat?.active ? '已暂停' : `+${formatNumber(character.qi_per_second)}/秒`}</b></span>
         <span><Gem size={15} />灵石 <b>{formatNumber(character.spirit_stones)}</b></span>
-        <span><Zap size={15} />精力 <b>{character.stamina?.current}/{character.stamina?.max}</b></span>
+        <span><Zap size={15} />精力 <b>{currentStamina}/{stamina?.max}</b></span>
         <span><Sparkles size={15} />奇缘 <b>{character.fate_points || 0}</b></span>
       </div>
 
@@ -858,9 +932,23 @@ function GamePage() {
 
           {activeTab === 'explore' && <div className="explore-view">
             <div className="section-heading"><div><small>山河有迹</small><h1>游历区域</h1></div><div className="section-actions"><button className="secondary-command exploration-history-command" title="查看游历记录" aria-label="查看游历记录" onClick={openExplorationHistory}><BookOpen size={16} /><span className="section-action-label">游历记录</span></button><button className="secondary-command battle-history-command" title="查看战绩" aria-label="查看战绩" onClick={openBattleHistory}><ScrollText size={16} /><span className="section-action-label">战绩</span></button><Map size={24} /></div></div>
-            <label className="area-picker"><span>选择区域</span><select value={activeArea} onChange={(event) => setActiveArea(event.target.value)}>{state.areas?.map((area) => <option key={area.code} value={area.code} disabled={!area.unlocked}>{area.unlocked ? area.name : `未解锁 · ${area.name}`}</option>)}</select></label>
-            {currentArea && <div className="location-scene"><img className="location-art" src={currentArea.image_url} alt={`${currentArea.name}场景`} /><div className="location-shade" /><div className="location-copy"><span>{currentArea.major_realm}区域 · {currentArea.event_count}类奇遇</span><h2>{currentArea.name}</h2><p>{currentArea.description}</p></div><button className="primary-command" onClick={doExplore} disabled={Boolean(state.pending_event) || busy === 'explore' || character.retreat?.active || character.stamina.current < currentArea.explore_stamina_cost}><Compass size={18} />{character.retreat?.active ? '闭关中不可游历' : state.pending_event ? '先处理眼前奇遇' : character.stamina.current < currentArea.explore_stamina_cost ? '精力不足' : `游历 · ${currentArea.explore_stamina_cost} 精力`}</button></div>}
-            {currentArea && <div className="field-notes"><span><PackageCheck size={17} />主要材料：{currentArea.material_summary}</span><span><Zap size={17} />精力 {character.stamina?.current}/{character.stamina?.max} · 游历消耗 {currentArea.explore_stamina_cost} · 低于上限时每5分钟恢复1点</span><span><Swords size={17} />深入区域可能遭遇妖兽；迎战另行消耗精力，也可收敛气息避开</span></div>}
+            <label className="area-picker"><span>选择区域</span><select value={activeArea || ''} onChange={(event) => setActiveArea(event.target.value)}>{state.areas?.map((area) => <option key={area.code} value={area.code} disabled={!area.unlocked}>{area.unlocked ? area.name : `未解锁 · ${area.name}`}</option>)}</select></label>
+            {currentArea && <>
+              <div className="location-scene">
+                {currentArea.image_url && <img className="location-art" src={currentArea.image_url} alt="" />}
+                <div className="location-shade" />
+                <div className="location-copy"><span>{currentArea.major_realm}区域</span><h2>{currentArea.name}</h2><p>{currentArea.description}</p></div>
+                <button className="primary-command" onClick={doExplore} disabled={Boolean(busy || exploreBlock)}>
+                  <Compass size={18} />{busy === 'explore' ? '寻路中…' : exploreBlock || `游历 · ${currentArea.explore_stamina_cost} 精力`}
+                </button>
+              </div>
+              <ExplorationAtlas key={currentArea.code} area={currentArea} />
+              <div className="field-notes">
+                <span><PackageCheck size={17} />主要材料：{currentArea.material_summary}</span>
+                <span><Zap size={17} />精力 {currentStamina}/{stamina?.max}{nextRestore > 0 ? ` · ${formatDuration(nextRestore)}后恢复 1 点` : ''}</span>
+                <span><Swords size={17} />深入区域可能遭遇妖兽；迎战另行消耗精力，也可收敛气息避开</span>
+              </div>
+            </>}
             <div className="combat-summary explore-combat-summary"><div><small>综合战力</small><strong>{state.combat_power}</strong></div><div><small>当前气血</small><strong>{character.stats.hp}/{character.stats.hp_max}</strong></div><div><small>战斗属性</small><span>攻击造成伤害，防御削减伤害，身法影响先手、闪避与暴击。</span></div><button className="secondary-command" onClick={() => run('rest', () => gameAPI.rest())} disabled={character.stats.hp >= character.stats.hp_max || Boolean(busy)}>调息疗伤</button></div>
           </div>}
 
@@ -1015,12 +1103,34 @@ function GamePage() {
       {titlesOpen && <div className="dialog-backdrop"><div className="event-dialog titles-dialog" role="dialog" aria-modal="true" aria-labelledby="titles-title"><div className="dialog-title-row"><div><span className="event-kicker">荣耀印记</span><h2 id="titles-title">称号管理</h2></div><button className="icon-button" title="关闭" onClick={() => setTitlesOpen(false)}><X size={18} /></button></div><div className="titles-list">{titles.map((item) => <article key={item.title} className={item.title === character.title ? 'active-title' : ''}><div><strong>{item.title}</strong><time>{new Date(item.unlocked_at).toLocaleDateString('zh-CN')}</time></div><button className="secondary-command" onClick={() => switchTitle(item.title)} disabled={item.title === character.title || Boolean(busy)}>{item.title === character.title ? '当前称号' : '设为称号'}</button></article>)}{!titles.length && <p className="empty-state">尚未解锁任何称号。</p>}</div></div></div>}
       {checkinOpen && <div className="dialog-backdrop"><div className="dialog checkin-dialog"><Sparkles size={30} /><h2>每日签到</h2><p>连续签到可获得灵石、奇缘和稀有材料奖励。</p><div className="checkin-info"><span>连续签到 <b>{character.checkin_streak || 0}</b> 天</span><span>上次签到 <b>{character.last_checkin_date ? new Date(character.last_checkin_date).toLocaleDateString('zh-CN') : '尚未签到'}</b></span></div><div className="checkin-rewards"><div><small>第1-2天</small><strong>50 灵石</strong></div><div><small>第3-6天</small><strong>100 灵石 + 1 奇缘</strong></div><div><small>第7天</small><strong>500 灵石 + 3 奇缘 + 稀有材料 + 称号「勤修不辍」</strong></div></div><div className="dialog-actions"><button className="secondary-command" onClick={() => setCheckinOpen(false)}>取消</button><button className="primary-command" onClick={doCheckin} disabled={Boolean(busy)}><Sparkles size={17} />签到</button></div></div></div>}
       {announcementsOpen && <div className="dialog-backdrop"><div className="event-dialog announcement-dialog" role="dialog" aria-modal="true" aria-labelledby="announcement-title"><div className="dialog-title-row"><div><span className="event-kicker">宗门传讯</span><h2 id="announcement-title">游戏公告</h2></div><button className="icon-button" title="关闭公告" onClick={() => setAnnouncementsOpen(false)}><X size={18} /></button></div><div className="announcement-list">{announcements.items.map((announcement) => <article key={announcement.id}><div><strong>{announcement.pinned ? '置顶 · ' : ''}{announcement.title}</strong><time>{new Date(announcement.updated_at).toLocaleString('zh-CN')}</time></div><p>{announcement.body}</p></article>)}{!announcements.items.length && <p className="empty-state">当前没有公告。</p>}</div><Pagination page={announcements.page} total={announcements.total} onChange={loadAnnouncements} /></div></div>}
-      {encounter && !explorationResult && <div className="dialog-backdrop"><div className="event-dialog encounter-dialog">{encounter.image_url && <img className="boss-art" src={encounter.image_url} alt={encounter.name} />}<span className="event-kicker">突发遭遇 · {combatRankLabels[encounter.rank]}</span><h2>{encounter.name}</h2><p>{encounter.description}</p><div className="encounter-forecast"><div><small>胜负预估</small><strong className={`forecast-${encounter.forecast}`}>{encounter.forecast}</strong></div><div><small>我方 / 敌方战力</small><strong>{formatNumber(encounter.player_power)} / {formatNumber(encounter.enemy_power)}</strong></div><div><small>挑战消耗</small><strong>{encounterStaminaCost} 精力</strong></div></div><div className="enemy-stats"><span>气血 <b>{formatNumber(encounter.hp)}</b></span><span>攻击 <b>{formatNumber(encounter.atk)}</b></span><span>防御 <b>{formatNumber(encounter.def)}</b></span><span>身法 <b>{formatNumber(encounter.spd)}</b></span></div>{encounter.missing_requirements?.length > 0 && <div className="boss-requirements"><strong>尚未具备挑战资格</strong>{encounter.missing_requirements.map((requirement) => <span key={requirement}>{requirement}</span>)}</div>}<div className="dialog-actions"><button className="secondary-command" onClick={avoidEncounter} disabled={Boolean(busy)}>避开</button><button className="primary-command" onClick={() => fight(encounter.code)} disabled={Boolean(busy) || encounter.can_challenge === false || character.stats.hp <= 1 || character.stamina.current < encounterStaminaCost}><Swords size={17} />迎战 · {encounterStaminaCost}</button></div>{character.stamina.current < encounterStaminaCost && <p className="form-error">精力不足，可等待恢复或在行囊服用养神丸。</p>}</div></div>}
+      {encounter && !explorationResult && <div className="dialog-backdrop"><div className="event-dialog encounter-dialog">{encounter.image_url && <img className="boss-art" src={encounter.image_url} alt={encounter.name} />}<span className="event-kicker">突发遭遇 · {combatRankLabels[encounter.rank]}</span><h2>{encounter.name}</h2><p>{encounter.description}</p><div className="encounter-forecast"><div><small>胜负预估</small><strong className={`forecast-${encounter.forecast}`}>{encounter.forecast}</strong></div><div><small>我方 / 敌方战力</small><strong>{formatNumber(encounter.player_power)} / {formatNumber(encounter.enemy_power)}</strong></div><div><small>挑战消耗</small><strong>{encounterStaminaCost} 精力</strong></div></div><div className="enemy-stats"><span>气血 <b>{formatNumber(encounter.hp)}</b></span><span>攻击 <b>{formatNumber(encounter.atk)}</b></span><span>防御 <b>{formatNumber(encounter.def)}</b></span><span>身法 <b>{formatNumber(encounter.spd)}</b></span></div>{encounter.missing_requirements?.length > 0 && <div className="boss-requirements"><strong>尚未具备挑战资格</strong>{encounter.missing_requirements.map((requirement) => <span key={requirement}>{requirement}</span>)}</div>}<div className="dialog-actions"><button className="secondary-command" onClick={avoidEncounter} disabled={Boolean(busy)}>避开</button><button className="primary-command" onClick={() => fight(encounter.code)} disabled={Boolean(busy) || encounter.can_challenge === false || character.stats.hp <= 1 || currentStamina < encounterStaminaCost}><Swords size={17} />迎战 · {encounterStaminaCost}</button></div>{currentStamina < encounterStaminaCost && <p className="form-error">精力不足，可等待恢复或在行囊服用养神丸。</p>}</div></div>}
       {recycleTarget && <div className="dialog-backdrop"><div className="dialog recycle-dialog"><Recycle size={30} /><h2>{recycleTarget.kind === 'equipment' ? '分解器物' : '销毁物品'}</h2><p>将消耗 <strong>{recycleTarget.name}</strong>，按真实炼器配方返还 30% 材料，每种材料不足 1 份时不返还。此操作不可撤销。</p><label><span>处理数量（最多 {recycleTarget.max}）</span><input type="number" min="1" max={recycleTarget.max} value={recycleAmount} onChange={(event) => setRecycleAmount(Math.max(1, Math.min(recycleTarget.max, Number(event.target.value) || 1)))} /></label><div className="dialog-actions"><button className="secondary-command" onClick={() => setRecycleTarget(null)}>取消</button><button className="primary-command danger-primary" onClick={confirmRecycle} disabled={busy === `recycle-${recycleTarget.code}`}><Recycle size={17} />确认处理</button></div></div></div>}
       {battleHistoryOpen && <div className="dialog-backdrop"><div className="event-dialog battle-history-dialog" role="dialog" aria-modal="true" aria-labelledby="battle-history-title"><div className="dialog-title-row"><div><span className="event-kicker">战斗记录</span><h2 id="battle-history-title">战绩查询</h2></div><button className="icon-button" title="关闭战绩" onClick={() => setBattleHistoryOpen(false)}><X size={18} /></button></div><div className="battle-history">{recentBattles.map((battle, index) => <div key={`${battle.fought_at}-${index}`}><span className={battle.result === 'win' ? 'battle-win' : 'battle-lose'}>{battle.result === 'win' ? '胜' : '败'}</span><strong>{battle.name || battle.enemy_code}</strong><small>{battle.rounds} 回合 · {new Date(battle.fought_at).toLocaleString('zh-CN')}</small><button className="icon-button" title="查看战报与掉落" onClick={() => inspectBattle(battle)}><ChevronRight size={16} /></button></div>)}{!recentBattles.length && <p className="empty-state">尚无战绩，游历时可能遭遇敌人。</p>}</div><Pagination page={gamePages.battles.page} total={gamePages.battles.total} onChange={loadBattleHistory} /></div></div>}
-      {state?.pending_event && <div className="dialog-backdrop"><div className="event-dialog"><span className="event-kicker">奇遇</span><h2>{state.pending_event.title}</h2><p>{state.pending_event.body}</p><div className="event-choices">{state.pending_event.choices.map((choice, index) => <button key={choice.text} onClick={() => choose(index)} disabled={Boolean(busy)}><span>{choice.text}</span><ChevronRight size={18} /></button>)}</div></div></div>}
+      {state.pending_event && !explorationResult && <div className="dialog-backdrop">
+        <div className="event-dialog exploration-event" role="dialog" aria-modal="true" aria-labelledby="exploration-event-title">
+          <span className="event-kicker">{currentArea?.name ? `${currentArea.name} · 奇遇` : '奇遇'}</span>
+          <h2 id="exploration-event-title">{state.pending_event.title}</h2>
+          <p>{state.pending_event.body}</p>
+          <div className="event-choices">{state.pending_event.choices.map((choice, index) => <button key={choice.text} onClick={() => choose(index)} disabled={Boolean(busy)}><span>{choice.text}</span><ChevronRight size={18} /></button>)}</div>
+        </div>
+      </div>}
       {lastBattle && <div className="dialog-backdrop"><div className="event-dialog battle-result">{battlePage === 'summary' ? <><span className="event-kicker">{lastBattle.result === 'win' ? '战胜' : '败退'}</span><h2>{lastBattle.result === 'win' ? '此战告捷' : '气血将尽'}</h2><p>{lastBattle.message}</p><div className="battle-overview"><span>交锋回合 <b>{lastBattle.rounds}</b></span><span>剩余气血 <b>{formatNumber(lastBattle.player_hp || 0)}</b></span><span>获得灵气 <b>{formatNumber(lastBattle.qi_reward || 0)}</b></span><span>获得灵石 <b>{formatNumber(lastBattle.stone_reward || 0)}</b></span></div><div className="dialog-actions"><button className="secondary-command" onClick={closeBattle}>关闭</button><button className="primary-command" onClick={() => setBattlePage('details')}><ScrollText size={17} />查看战报与掉落</button></div></> : <><span className="event-kicker">战斗详情</span><h2>{lastBattle.enemy_name || (lastBattle.result === 'win' ? '此战告捷' : '败退')}</h2><div className="battle-loot"><div><Flame size={16} /><span>灵气</span><b>{formatNumber(lastBattle.qi_reward || 0)}</b></div><div><Gem size={16} /><span>灵石</span><b>{formatNumber(lastBattle.stone_reward || 0)}</b></div>{lastBattle.loot?.map((item, index) => <div key={`${item.code}-${index}`} className={`battle-loot-item rarity-${item.rarity || 'common'}`}><RewardArt reward={item} /><span><i className={`rarity ${item.rarity || 'common'}`}>{rarityLabels[item.rarity] || '未记载品级'}</i>{item.name}</span><b>× {item.quantity || 1}</b></div>)}{!lastBattle.loot?.length && <p>此次没有物品掉落。</p>}</div><div className="battle-rounds">{lastBattle.log?.map((line, index) => <span key={index}>{line}</span>)}</div><div className="dialog-actions"><button className="secondary-command" onClick={returnFromBattleDetails}><ChevronLeft size={17} />{battleDetailSource === 'history' ? '返回战绩' : '返回概览'}</button><button className="primary-command" onClick={closeBattle}>关闭</button></div></>}</div></div>}
-      {explorationResult && <div className="dialog-backdrop"><div className="event-dialog exploration-result" role="dialog" aria-modal="true" aria-labelledby="exploration-result-title"><div className="dialog-title-row"><div><span className="event-kicker">游历结算</span><h2 id="exploration-result-title">{explorationResult.title}</h2></div><button className="icon-button" title="关闭结算" onClick={() => setExplorationResult(null)}><X size={18} /></button></div><p>{explorationResult.narrative || explorationResult.result}</p>{explorationResult.rewards?.length > 0 ? <div className="reward-list">{explorationResult.rewards.map((reward, index) => <article key={`${reward.category}-${reward.code}-${index}`} className={`reward-card rarity-${reward.rarity || 'common'}`}><RewardArt reward={reward} /><div><small>{reward.category === 'item' ? typeLabels[reward.item_type] || dropCategoryLabels.item : dropCategoryLabels[reward.category] || '游历收获'}</small><strong>{reward.name}</strong></div><div className="reward-meta"><span className={`rarity ${reward.rarity || 'common'}`}>{rarityLabels[reward.rarity] || '无品级'}</span><b>× {reward.quantity}</b></div></article>)}</div> : <p className="empty-state reward-empty">本次未获得可收录掉落。</p>}<button className="primary-command" onClick={() => setExplorationResult(null)}>收下</button></div></div>}
+      {explorationResult && <div className="dialog-backdrop">
+        <div className="event-dialog exploration-result" role="dialog" aria-modal="true" aria-labelledby="exploration-result-title">
+          <span className="event-kicker">游历结算</span><h2 id="exploration-result-title">{explorationResult.title}</h2>
+          {explorationResult.first_discovery && <div className="atlas-discovery"><BookOpen size={16} aria-hidden="true" />新奇遇已收录到图鉴</div>}
+          <p>{explorationResult.narrative || explorationResult.result}</p>
+          {(explorationResult.effects?.spirit_stones > 0 || explorationResult.effects?.fate_points > 0) && <div className="effect-stats">
+            {explorationResult.effects.spirit_stones > 0 && <span>灵石 +{explorationResult.effects.spirit_stones}</span>}
+            {explorationResult.effects.fate_points > 0 && <span>奇缘 +{explorationResult.effects.fate_points}</span>}
+          </div>}
+          {explorationResult.rewards?.length > 0 && <div className="reward-list">{explorationResult.rewards.map((reward, index) => <article key={`${reward.category}-${reward.code}-${index}`} className={`reward-card rarity-${reward.rarity || 'common'}`}><RewardArt reward={reward} /><div><small>{reward.category === 'item' ? typeLabels[reward.item_type] || dropCategoryLabels.item : dropCategoryLabels[reward.category] || '游历收获'}</small><strong>{reward.name}</strong></div><div className="reward-meta"><span className={`rarity ${reward.rarity || 'common'}`}>{rarityLabels[reward.rarity] || '无品级'}</span><b>× {reward.quantity}</b></div></article>)}</div>}
+          {explorationResult.encounter_triggered ? <div className="dialog-actions"><button className="primary-command" onClick={closeExplorationResult} disabled={Boolean(busy)}><Swords size={17} />查看遭遇</button></div> : <div className="dialog-actions">
+            <button className="secondary-command" onClick={closeExplorationResult}>返回地图</button>
+            <button className="primary-command" onClick={doExplore} disabled={Boolean(busy || exploreBlock)}><Compass size={17} />{busy === 'explore' ? '寻路中…' : exploreBlock || '继续游历'}</button>
+          </div>}
+        </div>
+      </div>}
       {explorationHistoryOpen && <div className="dialog-backdrop"><div className="event-dialog exploration-history-dialog" role="dialog" aria-modal="true" aria-labelledby="exploration-history-title"><div className="dialog-title-row"><div><span className="event-kicker">行迹留痕</span><h2 id="exploration-history-title">游历记录</h2></div><button className="icon-button" title="关闭游历记录" onClick={() => setExplorationHistoryOpen(false)}><X size={18} /></button></div><div className="exploration-history-list">{explorationHistoryLoading && !explorationHistory.items.length && <p className="empty-state history-empty">读取记录中...</p>}{!explorationHistoryLoading && !explorationHistory.items.length && <p className="empty-state history-empty">尚无游历记录。</p>}{explorationHistory.items.map((record) => <article key={record.id}><div className="exploration-history-head"><div><span>{record.area_name}</span><strong>{record.event_title}</strong></div><time>{new Date(record.explored_at).toLocaleString('zh-CN')}</time></div><p>{record.narrative}</p>{record.choice_text && <small className="history-choice">{record.choice_text}</small>}{Array.isArray(record.rewards) && record.rewards.length > 0 ? <div className="exploration-history-rewards">{record.rewards.map((reward, index) => <span key={`${reward.category}-${reward.code}-${index}`} className={`history-reward rarity-${reward.rarity || 'common'}`}><RewardArt reward={reward} className="history-reward-art" /><b>{reward.name}</b><em>× {reward.quantity}</em></span>)}</div> : <small className="history-no-reward">无额外掉落</small>}</article>)}</div><Pagination page={explorationHistory.page} total={explorationHistory.total} onChange={loadExplorationHistory} /></div></div>}
       {notice && <div className="toast">{notice}</div>}
     </div>

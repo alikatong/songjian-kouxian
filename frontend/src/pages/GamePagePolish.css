@@ -408,6 +408,66 @@
 
 .dialog-title-row .icon-button { border-radius: 9px; }
 
+.exploration-atlas {
+  margin-top: 14px;
+  border: 1px solid #4c5847;
+  border-radius: 10px;
+  background: #1b291f;
+}
+
+.exploration-atlas summary {
+  display: grid;
+  grid-template-columns: auto auto minmax(24px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 8px 14px;
+  color: #e6ce8d;
+  list-style: none;
+  cursor: pointer;
+}
+
+.exploration-atlas summary::-webkit-details-marker { display: none; }
+.exploration-atlas summary:focus-visible,
+.exploration-event .event-choices button:focus-visible { outline: 2px solid #e5c46f; outline-offset: 2px; }
+.exploration-atlas[open] summary > svg:last-child { transform: rotate(90deg); }
+.exploration-atlas summary span { color: #c4cebf; font: 12px system-ui, sans-serif; }
+.exploration-atlas progress { width: 100%; height: 6px; border: 0; background: #101912; accent-color: #cfad61; }
+.exploration-atlas progress::-webkit-progress-bar { background: #101912; }
+.exploration-atlas progress::-webkit-progress-value { background: #cfad61; }
+.exploration-atlas p { margin: 0; padding: 0 14px 12px; color: #c4cebf; font: 12px system-ui, sans-serif; }
+
+.exploration-atlas ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 7px;
+  margin: 0;
+  padding: 0 14px 14px;
+  list-style: none;
+}
+
+.exploration-atlas li,
+.atlas-discovery { display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: #ebd28f; background: #293426; border-radius: 6px; }
+.exploration-atlas li { font-size: 13px; }
+.exploration-atlas li svg,
+.atlas-discovery svg { flex: none; }
+.atlas-discovery { margin: 8px 0; font: 600 13px system-ui, sans-serif; }
+.exploration-event { max-height: calc(100dvh - 40px); overflow: auto; }
+.exploration-result .dialog-actions > :only-child { grid-column: 1 / -1; }
+.explore-view .location-scene > .primary-command:disabled,
+.exploration-result .primary-command:disabled {
+  opacity: 1;
+  border: 1px solid #5b634f;
+  background: #2a3227;
+  color: #d5d8c8;
+  box-shadow: none;
+}
+
+@media (max-width: 760px) {
+  .explore-view .location-scene { min-height: 290px; }
+  .exploration-atlas summary { gap: 8px; padding-inline: 10px; }
+}
+
 .fatal-state {
   min-height: 100vh;
   padding: 32px;

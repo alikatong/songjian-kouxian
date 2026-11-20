@@ -88,7 +88,7 @@ test('all migrations build a fresh database and seed playable content', async ()
   assert.equal(realms.rows[0].count, 49);
   assert.equal(techniques.rows[0].count, 1305);
   assert.ok(items.rows[0].count >= 919);
-  assert.equal(events.rows[0].count, 134);
+  assert.equal(events.rows[0].count, 137);
   assert.equal(areas.rows[0].count, 13);
   assert.equal(equipment.rows[0].count, 390);
   assert.equal(staminaPills.rows[0].count, 13);
